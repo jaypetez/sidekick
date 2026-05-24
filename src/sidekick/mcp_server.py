@@ -23,28 +23,26 @@ from mcp.server import Server
 import mcp.types as types
 
 from .calendar.chronary import ChronaryProvider
-from .storage.google_tasks import GoogleTasksStore
+from .storage.sqlite_tasks import SQLiteTaskStore
 
 SCOPES = [
     "https://www.googleapis.com/auth/gmail.send",
-    "https://www.googleapis.com/auth/tasks",
 ]
 
 
 class MCPServer:
     def __init__(self):
         self.gmail = None
-        self.tasks = None
         self.timezone = os.getenv("TIMEZONE", "America/Chicago")
         self._calendar: ChronaryProvider | None = None
-        self._tasks_store: GoogleTasksStore | None = None
+        self._tasks_store: SQLiteTaskStore | None = None
         self.server = Server("sidekick")
         self._register_tools()
 
     # ------------------------------------------------------------------
-    # Provider accessors — lazily constructed. Calendar pulls IDs from
-    # environment (set by `sidekick-init`); task store still wraps the
-    # Google Tasks service until step 4 swaps it for SQLite.
+    # Provider accessors — calendar pulls IDs from env (set by
+    # `sidekick-init`); task store opens a local SQLite database at
+    # SIDEKICK_DB_PATH (default ~/.config/sidekick/sidekick.db).
     # ------------------------------------------------------------------
 
     @property
@@ -54,24 +52,20 @@ class MCPServer:
         return self._calendar
 
     @property
-    def tasks_store(self) -> GoogleTasksStore | None:
-        if self._tasks_store is None and self.tasks is not None:
-            self._tasks_store = GoogleTasksStore(self.tasks)
+    def tasks_store(self) -> SQLiteTaskStore:
+        if self._tasks_store is None:
+            self._tasks_store = SQLiteTaskStore()
         return self._tasks_store
 
     # ------------------------------------------------------------------
-    # Google Auth
+    # Google Auth (Gmail only — removed in step 5)
     # ------------------------------------------------------------------
 
     def build_google_service(self) -> None:
-        """Build Google Tasks + Gmail services. Calendar is on Chronary.
+        """Build the Gmail service. Removed entirely in step 5.
 
         token.json must already exist — generate it on your laptop by
         running auth.py, then SCP it to ~/.config/sidekick/token.json.
-        The token auto-refreshes when expired.
-
-        Step 4 swaps Tasks → SQLite (no Google needed); step 5 removes
-        Gmail. This method goes away entirely after step 5.
         """
         token_file = os.getenv("GOOGLE_TOKEN_FILE", "token.json")
 
@@ -90,7 +84,6 @@ class MCPServer:
                 f.write(creds.to_json())
 
         self.gmail = build("gmail", "v1", credentials=creds)
-        self.tasks = build("tasks", "v1", credentials=creds)
 
     # ------------------------------------------------------------------
     # Tool registration
