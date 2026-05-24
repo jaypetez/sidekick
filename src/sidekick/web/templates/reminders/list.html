@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% block title %}Reminders{% endblock %}
+{% block content %}
+<h1>Reminders</h1>
+
+<section>
+  <h2>Active</h2>
+  <table>
+    <thead>
+      <tr><th>ID</th><th>Name</th><th>Type</th><th>Next run</th><th>Status</th><th>Actions</th></tr>
+    </thead>
+    <tbody>
+      {% for r in reminders %}
+      <tr>
+        <td>{{ r.id }}</td>
+        <td>{{ r.name }}</td>
+        <td>{{ r.type|default('—') }}</td>
+        <td>{{ r.next_run|default('—') }}</td>
+        <td>{{ 'Paused' if r.paused else 'Active' }}</td>
+        <td>
+          <form method="post" action="/reminders/{{ r.id }}" style="display:inline">
+            <input type="hidden" name="enabled" value="{{ 'false' if not r.paused else 'true' }}">
+            <button type="submit" class="secondary">{{ 'Pause' if not r.paused else 'Resume' }}</button>
+          </form>
+          {% if r.id not in builtin_ids %}
+          <form method="post" action="/reminders/{{ r.id }}/delete" style="display:inline">
+            <button type="submit" class="danger">Delete</button>
+          </form>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+
+<section style="margin-top:32px">
+  <h2>Create custom reminder</h2>
+  <form method="post" action="/reminders">
+    <div class="field"><label>Message</label><input name="message" required></div>
+    <div class="field"><label>Hour (0–23)</label><input name="hour" type="number" min="0" max="23" required></div>
+    <div class="field"><label>Minute (0–59)</label><input name="minute" type="number" min="0" max="59" required></div>
+    <div class="field"><label>Day of week (optional, e.g. <code>mon,wed,fri</code>)</label><input name="day_of_week"></div>
+    <div class="field"><label>Chat ID (defaults to REMINDER_CHAT_ID)</label><input name="chat_id"></div>
+    <button type="submit">Add reminder</button>
+  </form>
+</section>
+{% endblock %}
