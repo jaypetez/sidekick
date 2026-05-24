@@ -1,0 +1,41 @@
+services:
+  sidekick:
+    build: .
+    image: sidekick:latest
+    container_name: sidekick
+    env_file: .env
+    volumes:
+      # Persists SQLite DB, Chronary IDs (~/.config/sidekick/config.json),
+      # custom reminders JSON, and personality config across container
+      # restarts. Adjust the host path as needed.
+      - ${SIDEKICK_HOST_CONFIG:-./data/sidekick}:/home/app/.config/sidekick
+    restart: unless-stopped
+    # If LLM_PROVIDER=ollama, the bot needs to reach the ollama service.
+    # Override OLLAMA_BASE_URL in .env to http://ollama:11434 in that case.
+    depends_on:
+      - ollama
+    # depends_on with `condition: service_started` would block on the
+    # ollama container start, but the `ollama` profile keeps that service
+    # off by default — depends_on against an unstarted service is ignored
+    # by docker compose, so this is safe.
+
+  ollama:
+    image: ollama/ollama:latest
+    container_name: sidekick-ollama
+    profiles: ["ollama"]
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    restart: unless-stopped
+    # --- GPU passthrough (NVIDIA only — uncomment to enable) ---
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: all
+    #           capabilities: [gpu]
+
+volumes:
+  ollama_data:
