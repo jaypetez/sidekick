@@ -30,7 +30,10 @@ services:
     container_name: sidekick-ollama
     profiles: ["ollama"]
     ports:
-      - "11434:11434"
+      # Bind to host loopback only — prevents the Ollama API from being
+      # exposed on the LAN. Use `docker exec sidekick-ollama ...` or
+      # other containers on the compose network to reach it remotely.
+      - "127.0.0.1:11434:11434"
     volumes:
       - ollama_data:/root/.ollama
     restart: unless-stopped

@@ -17,6 +17,16 @@ import pytest
 os.environ.setdefault("TELEGRAM_BOT_TOKEN", "test-token-not-real")
 
 from sidekick import bot as bot_module  # noqa: E402
+from sidekick import ratelimit  # noqa: E402
+
+
+@pytest.fixture(autouse=True)
+def _allow_default_user(monkeypatch):
+    """Default tests assume the synthetic user (id=7) is on the allowlist."""
+    monkeypatch.setenv("TELEGRAM_ALLOWED_USER_IDS", "7")
+    ratelimit.reset_default_limiter()
+    yield
+    ratelimit.reset_default_limiter()
 
 
 def _make_update(
@@ -25,6 +35,7 @@ def _make_update(
     chat_id: int = 42,
     has_message: bool = True,
     has_chat: bool = True,
+    user_id: int | None = 7,
 ) -> MagicMock:
     """Build a minimal Update-shaped mock for handler tests."""
     update = MagicMock()
@@ -38,6 +49,9 @@ def _make_update(
         update.effective_chat = SimpleNamespace(id=chat_id)
     else:
         update.effective_chat = None
+    update.effective_user = (
+        SimpleNamespace(id=user_id, username="tester") if user_id is not None else None
+    )
     return update
 
 
@@ -114,7 +128,8 @@ async def test_handle_message_routes_to_agent():
     await bot_module.handle_message(update, context)
     agent.process_message.assert_awaited_once_with(42, "what's tomorrow?")
     update.message.reply_text.assert_awaited_once()
-    body = update.message.reply_text.await_args.args[0]
+    call = update.message.reply_text.await_args
+    body = call.args[0] if call.args else call.kwargs.get("text", "")
     assert "2 things" in body
 
 

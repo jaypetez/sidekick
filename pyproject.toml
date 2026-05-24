@@ -65,6 +65,16 @@ addopts = "-v --cov=src/sidekick --cov-report=term-missing --cov-report=xml --co
 source = ["src/sidekick"]
 branch = true
 
+[tool.bandit]
+# Skip rules that fire on intentional patterns in this codebase:
+#   B404 — "subprocess module" import. We spawn the MCP server via stdio
+#          transport; the import is unavoidable.
+#   B603 — subprocess call with shell=False on a controlled argv list
+#          (MCP launcher). Inputs are not user-controlled.
+#   B607 — start_process with a partial path. The htmx integrity hash check
+#          and MCP launcher rely on PATH-resolved binaries by design.
+skips = ["B404", "B603", "B607"]
+
 [tool.coverage.report]
 exclude_lines = [
     "pragma: no cover",

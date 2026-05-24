@@ -28,7 +28,7 @@ from dotenv import load_dotenv
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 from telegram import Bot, Update
-from telegram.constants import ChatAction, ParseMode
+from telegram.constants import ChatAction
 from telegram.ext import (
     Application,
     CommandHandler,
@@ -40,9 +40,38 @@ from telegram.ext import (
 load_dotenv()
 
 from .agent import PERSONALITY_PRESETS, SidekickAgent  # noqa: E402
+from .allowlist import (  # noqa: E402
+    DENIED_MESSAGE,
+    is_allowed,
+    parse_int_csv,
+    warn_if_empty,
+)
+from .logging_setup import install_redaction_filter  # noqa: E402
 from .platforms.base import IncomingMessage  # noqa: E402
+from .ratelimit import get_default_limiter  # noqa: E402
 from .reminders import load_custom_reminders, setup_scheduler  # noqa: E402
+from .telegram_format import reply_safe  # noqa: E402
 from .web import make_app as make_web_app  # noqa: E402
+
+TELEGRAM_ALLOWED_ENV = "TELEGRAM_ALLOWED_USER_IDS"
+
+
+def _telegram_allowlist() -> frozenset[int]:
+    """Re-read the allowlist on each call so tests can monkeypatch the env."""
+    return parse_int_csv(os.getenv(TELEGRAM_ALLOWED_ENV))
+
+
+def _deny(update: Update, *, reason: str) -> None:
+    user = update.effective_user
+    chat = update.effective_chat
+    logger.warning(
+        "telegram_denied reason=%s user_id=%s username=%s chat_id=%s",
+        reason,
+        getattr(user, "id", None),
+        getattr(user, "username", None),
+        getattr(chat, "id", None),
+    )
+
 
 # python-telegram-bot's Application is generic over (bot, context, user_data,
 # chat_data, bot_data, job_queue). We don't customize any of them — alias to Any
@@ -53,7 +82,48 @@ logging.basicConfig(
     format="%(asctime)s %(levelname)s %(name)s — %(message)s",
     level=logging.INFO,
 )
+install_redaction_filter()
 logger = logging.getLogger(__name__)
+
+
+# Environment variables propagated to the MCP subprocess. The subprocess
+# only talks to Chronary + SQLite — it does not call the LLM, the chat
+# platforms, or the web dashboard, so secrets for those services are
+# deliberately withheld. Process-runtime vars (PATH, locale, HOME) stay
+# because the interpreter itself needs them.
+_MCP_ENV_ALLOWLIST: frozenset[str] = frozenset(
+    {
+        # process runtime
+        "PATH",
+        "PYTHONUNBUFFERED",
+        "PYTHONIOENCODING",
+        "LANG",
+        "LC_ALL",
+        "HOME",
+        "USERPROFILE",
+        "APPDATA",
+        "LOCALAPPDATA",
+        "TEMP",
+        "TMP",
+        # app-specific (Chronary + SQLite + timezone + paths)
+        "CHRONARY_API_KEY",
+        "CHRONARY_AGENT_ID",
+        "CHRONARY_CALENDAR_ID",
+        "TIMEZONE",
+        "SIDEKICK_DB_PATH",
+        "SIDEKICK_CONFIG_DIR",
+    }
+)
+
+
+def _build_mcp_env() -> dict[str, str]:
+    """Return a scoped env dict for the MCP subprocess.
+
+    Filters out unrelated secrets (TELEGRAM_BOT_TOKEN, SLACK_*_TOKEN,
+    ANTHROPIC_API_KEY, SIDEKICK_WEB_AUTH_TOKEN, ...) so a compromise of
+    the MCP subprocess cannot exfiltrate them.
+    """
+    return {k: v for k, v in os.environ.items() if k in _MCP_ENV_ALLOWLIST}
 
 
 # ---------------------------------------------------------------------------
@@ -63,6 +133,11 @@ logger = logging.getLogger(__name__)
 
 async def handle_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     assert update.message is not None
+    user = update.effective_user
+    if not is_allowed(getattr(user, "id", None), _telegram_allowlist()):
+        _deny(update, reason="not_allowlisted")
+        await update.message.reply_text(DENIED_MESSAGE)
+        return
     await update.message.reply_text(
         "Hi! I'm Sidekick, your personal assistant.\n\n"
         "Just talk to me naturally — try things like:\n"
@@ -87,10 +162,9 @@ async def handle_get_id(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     assert update.effective_chat is not None and update.message is not None
     chat_id = update.effective_chat.id
     await update.message.reply_text(
-        f"This chat's ID is: `{chat_id}`\n\n"
-        "Set `REMINDER_CHAT_ID={chat_id}` in your `.env` file to enable "
-        "morning summaries and pre-event reminders here.",
-        parse_mode=ParseMode.MARKDOWN,
+        f"This chat's ID is: {chat_id}\n\n"
+        f"Set REMINDER_CHAT_ID={chat_id} in your .env file to enable "
+        "morning summaries and pre-event reminders here."
     )
 
 
@@ -118,9 +192,27 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     if not update.message or not update.message.text or not update.effective_chat:
         return
 
+    user = update.effective_user
+    if not is_allowed(getattr(user, "id", None), _telegram_allowlist()):
+        _deny(update, reason="not_allowlisted")
+        await update.message.reply_text(DENIED_MESSAGE)
+        return
+
     chat_id = update.effective_chat.id
     user_text = update.message.text
     agent: SidekickAgent = context.bot_data["agent"]
+
+    limiter = get_default_limiter()
+    if not await limiter.acquire(("tg", getattr(user, "id", chat_id))):
+        logger.warning(
+            "telegram_rate_limited user_id=%s chat_id=%s",
+            getattr(user, "id", None),
+            chat_id,
+        )
+        await update.message.reply_text(
+            "You're sending messages too quickly — please slow down and try again."
+        )
+        return
 
     await context.bot.send_chat_action(chat_id=chat_id, action=ChatAction.TYPING)
 
@@ -131,7 +223,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         await update.message.reply_text("Sorry, something went wrong. Please try again.")
         return
 
-    await update.message.reply_text(reply, parse_mode=ParseMode.MARKDOWN)
+    await reply_safe(update.message, reply)
 
 
 # ---------------------------------------------------------------------------
@@ -168,6 +260,9 @@ async def _bootstrap_services(bot_data: dict[str, Any], bot: Bot | None) -> None
     """
     logger.info("Starting Sidekick (%s mode)", "telegram" if bot else "web-only")
 
+    if bot is not None:
+        warn_if_empty(_telegram_allowlist(), TELEGRAM_ALLOWED_ENV)
+
     # IMPORTANT: launch the MCP server via `-m sidekick.mcp_server`, not by
     # passing the script path. Running the .py file directly prepends
     # src/sidekick/ to sys.path, which makes our `sidekick/calendar/` package
@@ -176,7 +271,7 @@ async def _bootstrap_services(bot_data: dict[str, Any], bot: Bot | None) -> None
     params = StdioServerParameters(
         command=sys.executable,
         args=["-m", "sidekick.mcp_server"],
-        env=dict(os.environ),
+        env=_build_mcp_env(),
     )
 
     session_ready = asyncio.Event()

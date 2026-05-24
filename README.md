@@ -256,6 +256,19 @@ Set `LLM_PROVIDER=ollama` to route the bot through a local Ollama server instead
 
 ---
 
+## Deployment posture
+
+Sane defaults out of the box, but you own the host. A few specifics worth knowing:
+
+- **Web dashboard binds to `127.0.0.1` only** inside the container. Docker publishes it back to the host loopback via the `127.0.0.1:8080:8080` mapping in `docker-compose.yml`, so it is never reachable from the LAN unless you change `SIDEKICK_WEB_HOST`.
+- **Ollama port is loopback-only.** The compose file binds the `ollama` service to `127.0.0.1:11434`, so a misconfigured firewall doesn't accidentally expose your local model server to the network.
+- **`.env` should be `chmod 0600`.** The file holds bot tokens, Chronary keys, and Anthropic credentials.
+- **Persisted state files (`reminders.json`, `config.json`) are written with mode `0600`** so other users on the host can't read your reminder schedule.
+- **MCP subprocess env is scoped** — only Chronary, SQLite, and timezone vars propagate. Telegram / Slack / Anthropic / web-auth tokens are withheld.
+- Full hardening guide and the dashboard auth token requirement live in `docs/security.md`.
+
+---
+
 ## Known limitations
 
 - **Recurring events** — Chronary doesn't document recurring-event support; the bot creates individual instances when asked for *"every X"*. Revisit when Chronary publishes RRULE.
@@ -285,3 +298,12 @@ Branching, commit, and PR conventions live in [`.github/CONTRIBUTING.md`](.githu
 ## License
 
 [MIT](LICENSE).
+
+---
+
+## Security
+
+Sidekick is a single-tenant self-hosted bot. Defaults are closed: Telegram and Slack require explicit user allowlists, the web dashboard binds to `127.0.0.1:8080`, and CI runs `pip-audit`, `bandit`, and CodeQL on every PR.
+
+- Policy and how to report a vulnerability: [`.github/SECURITY.md`](.github/SECURITY.md)
+- Operator's guide (threat model, surface posture, checklist, known limitations): [`docs/security.md`](docs/security.md)
