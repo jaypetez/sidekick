@@ -177,7 +177,9 @@ class FamilyAgent:
         self.session = mcp_session
         self.llm: LLMClient = llm or AnthropicClient()
         self.timezone = os.getenv("TIMEZONE", "America/Chicago")
-        self.conversation_history: dict[int, list[dict]] = {}
+        # chat_id can be an int (Telegram, historic) or a string ("sl:C0123",
+        # "tg:-100123") once platforms prefix their ids.
+        self.conversation_history: dict[int | str, list[dict]] = {}
         self.tools: list[dict] = []
         self.personality = _read_config().get("personality", "")
         self.scheduler = scheduler
@@ -200,7 +202,7 @@ class FamilyAgent:
         logger.info("Loaded %d tools (%d MCP + %d local)", len(self.tools),
                      len(self.tools) - len(REMINDER_TOOL_DEFS), len(REMINDER_TOOL_DEFS))
 
-    def clear_history(self, chat_id: int) -> None:
+    def clear_history(self, chat_id: int | str) -> None:
         self.conversation_history.pop(chat_id, None)
 
     def set_personality(self, style: str) -> str:
@@ -220,7 +222,7 @@ class FamilyAgent:
         _write_config(config)
         return label
 
-    async def process_message(self, chat_id: int, user_text: str) -> str:
+    async def process_message(self, chat_id: int | str, user_text: str) -> str:
         """Main entry point — append user message to history, run tool loop, return reply."""
         history = self.conversation_history.setdefault(chat_id, [])
 
@@ -235,21 +237,21 @@ class FamilyAgent:
         except anthropic.BadRequestError as e:
             # History is corrupted (mismatched tool_use/tool_result). Clear it
             # entirely and tell the user so they can just repeat their message.
-            logger.error("Corrupted history for chat %d, clearing: %s", chat_id, e)
+            logger.error("Corrupted history for chat %s, clearing: %s", chat_id, e)
             self.clear_history(chat_id)
             return (
                 "I hit a conversation error and had to reset. "
                 "Sorry about that — please send your message again."
             )
         except Exception:
-            logger.exception("Error in tool loop for chat %d", chat_id)
+            logger.exception("Error in tool loop for chat %s", chat_id)
             # Restore history to exactly where it was before this request
             del history[snapshot_len:]
             raise
 
         return reply
 
-    async def _run_tool_loop(self, chat_id: int) -> str:
+    async def _run_tool_loop(self, chat_id: int | str) -> str:
         """Run the Claude tool-use loop until end_turn, return final text."""
         history = self.conversation_history[chat_id]
         today = datetime.now(ZoneInfo(self.timezone)).date().isoformat()
