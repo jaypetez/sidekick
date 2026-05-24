@@ -16,11 +16,13 @@
 <form class="chat-form" hx-post="/chat" hx-target="#messages" hx-swap="beforeend"
       hx-on::after-request="this.reset(); document.getElementById('messages').scrollTop = document.getElementById('messages').scrollHeight"
       method="post" action="/chat">
+  <input type="hidden" name="_csrf" value="{{ csrf_token }}">
   <input name="message" placeholder="Type a message..." autocomplete="off" required autofocus>
   <button type="submit">Send</button>
 </form>
 
 <form method="post" action="/chat/reset" style="margin-top:12px">
+  <input type="hidden" name="_csrf" value="{{ csrf_token }}">
   <button type="submit" class="secondary">Clear conversation</button>
 </form>
 

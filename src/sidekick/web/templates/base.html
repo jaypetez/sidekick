@@ -4,10 +4,23 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta http-equiv="cache-control" content="no-cache">
+  <meta name="csrf-token" content="{{ csrf_token }}">
   <title>{% block title %}Sidekick{% endblock %} — Sidekick admin</title>
   <link rel="stylesheet" href="/static/style.css">
   <link rel="icon" type="image/svg+xml" href="/static/sidekick-logo.svg">
-  <script src="https://unpkg.com/htmx.org@2.0.3" defer></script>
+  <script src="https://unpkg.com/htmx.org@2.0.3"
+          integrity="sha384-0895/pl2MU10Hqc6jd4RvrthNlDiE9U1tWmX7WRESftEDRosgxNsQG/Ze9YMRzHq"
+          crossorigin="anonymous"
+          defer></script>
+  <script>
+    // Wire every htmx request with the CSRF token from the meta tag above.
+    document.addEventListener('htmx:configRequest', function (event) {
+      var meta = document.querySelector('meta[name="csrf-token"]');
+      if (meta) {
+        event.detail.headers['X-CSRF-Token'] = meta.getAttribute('content');
+      }
+    });
+  </script>
 </head>
 <body>
   {% set current = request.path if request else '/' %}

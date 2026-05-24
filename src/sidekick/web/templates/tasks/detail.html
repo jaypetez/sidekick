@@ -14,10 +14,12 @@
       <tr>
         <td>{{ item.title }}</td>
         <td>
-          <form method="post" action="/tasks/{{ list_name }}/items/{{ item.title }}/complete" style="display:inline">
+          <form method="post" action="/tasks/{{ list_name|urlencode }}/items/{{ item.id|urlencode }}/complete" style="display:inline">
+            <input type="hidden" name="_csrf" value="{{ csrf_token }}">
             <button type="submit" class="secondary">Complete</button>
           </form>
-          <form method="post" action="/tasks/{{ list_name }}/items/{{ item.title }}/delete" style="display:inline">
+          <form method="post" action="/tasks/{{ list_name|urlencode }}/items/{{ item.id|urlencode }}/delete" style="display:inline">
+            <input type="hidden" name="_csrf" value="{{ csrf_token }}">
             <button type="submit" class="danger">Delete</button>
           </form>
         </td>
@@ -32,14 +34,16 @@
 
 <section style="margin-top:24px">
   <h2>Add item</h2>
-  <form method="post" action="/tasks/{{ list_name }}/items">
+  <form method="post" action="/tasks/{{ list_name|urlencode }}/items">
+    <input type="hidden" name="_csrf" value="{{ csrf_token }}">
     <div class="field"><label>Title</label><input name="title" required></div>
     <button type="submit">Add</button>
   </form>
 </section>
 
 <section style="margin-top:24px">
-  <form method="post" action="/tasks/{{ list_name }}/clear-completed">
+  <form method="post" action="/tasks/{{ list_name|urlencode }}/clear-completed">
+    <input type="hidden" name="_csrf" value="{{ csrf_token }}">
     <button type="submit" class="secondary">Clear completed</button>
   </form>
 </section>

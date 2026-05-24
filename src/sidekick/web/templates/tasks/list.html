@@ -9,10 +9,11 @@
   <tbody>
     {% for l in lists %}
     <tr>
-      <td><a href="/tasks/{{ l.name }}">{{ l.name }}</a></td>
+      <td><a href="/tasks/{{ l.name|urlencode }}">{{ l.name }}</a></td>
       <td>{{ l.open_count }}</td>
       <td>
-        <form method="post" action="/tasks/{{ l.name }}/delete" style="display:inline">
+        <form method="post" action="/tasks/{{ l.name|urlencode }}/delete" style="display:inline">
+          <input type="hidden" name="_csrf" value="{{ csrf_token }}">
           <button type="submit" class="danger">Delete list</button>
         </form>
       </td>

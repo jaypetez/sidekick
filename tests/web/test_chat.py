@@ -11,6 +11,8 @@ import pytest_asyncio
 from sidekick.web import make_app
 from sidekick.web.handlers.chat import CHAT_ID, _history_pairs
 
+from .conftest import CsrfClient
+
 
 @pytest.fixture
 def chat_app(bot_data):
@@ -26,7 +28,7 @@ def chat_app(bot_data):
 
 @pytest_asyncio.fixture
 async def chat_client(aiohttp_client, chat_app):
-    return await aiohttp_client(chat_app)
+    return CsrfClient(await aiohttp_client(chat_app))
 
 
 @pytest.mark.asyncio
