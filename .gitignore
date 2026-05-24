@@ -16,7 +16,11 @@ venv/
 # Testing
 .pytest_cache/
 .coverage
+coverage.xml
 htmlcov/
+
+# Type checking
+.mypy_cache/
 
 # IDE
 .idea/
