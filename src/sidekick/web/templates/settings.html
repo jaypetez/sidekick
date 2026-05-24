@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% block title %}Settings{% endblock %}
+{% block content %}
+<h1>Settings</h1>
+
+<section>
+  <h2>Personality</h2>
+  <p>Current: {{ personality if personality else 'default (friendly assistant)' }}</p>
+  <form method="post" action="/settings/personality">
+    <div class="field">
+      <label>Style</label>
+      <input name="style" list="presets" placeholder="e.g. pirate, formal, butler, or freeform">
+      <datalist id="presets">
+        <option value="default">
+        {% for preset in presets %}
+        <option value="{{ preset }}">
+        {% endfor %}
+      </datalist>
+    </div>
+    <button type="submit">Apply</button>
+  </form>
+</section>
+
+<section style="margin-top:32px">
+  <h2>Environment</h2>
+  <table>
+    <thead><tr><th>Variable</th><th>Value</th></tr></thead>
+    <tbody>
+      {% for key, value in env.items() %}
+      <tr><td><code>{{ key }}</code></td><td>{{ value if value else '—' }}</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  <p style="color:var(--muted); margin-top:8px">Tokens and API keys are intentionally not shown.</p>
+</section>
+{% endblock %}

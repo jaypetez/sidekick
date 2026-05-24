@@ -222,10 +222,27 @@ async def _run_web(application: AppT) -> None:
     """
     from aiohttp import web as aiohttp_web
 
+    from .calendar.chronary import ChronaryProvider
+    from .storage.sqlite_tasks import SQLiteTaskStore
+
     host = os.getenv("SIDEKICK_WEB_HOST", "127.0.0.1")
     port = int(os.getenv("SIDEKICK_WEB_PORT", "8080"))
 
-    app = make_web_app(bot_data=application.bot_data)
+    # Web layer gets its own provider instances so the MCP subprocess's
+    # store/provider stay isolated. SQLite WAL handles the concurrency.
+    task_store = SQLiteTaskStore()
+    try:
+        calendar_provider: ChronaryProvider | None = ChronaryProvider()
+    except KeyError:
+        # CHRONARY_* env vars not configured — calendar routes will 503.
+        calendar_provider = None
+        logger.warning("CHRONARY_* env vars missing; calendar dashboard routes disabled")
+
+    app = make_web_app(
+        bot_data=application.bot_data,
+        task_store=task_store,
+        calendar_provider=calendar_provider,
+    )
     runner = aiohttp_web.AppRunner(app)
     await runner.setup()
     application.bot_data["web_runner"] = runner

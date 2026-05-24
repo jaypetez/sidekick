@@ -18,7 +18,7 @@ from aiohttp import web
 
 from ..calendar.chronary import ChronaryProvider
 from ..storage.sqlite_tasks import SQLiteTaskStore
-from .handlers import calendar_routes, dashboard, health, reminders, tasks
+from .handlers import calendar_routes, dashboard, health, reminders, settings, tasks
 
 
 def make_app(
@@ -80,5 +80,10 @@ def make_app(
     app.router.add_post("/events", calendar_routes.create, name="calendar.create")
     app.router.add_post("/events/{id}", calendar_routes.update, name="calendar.update")
     app.router.add_post("/events/{id}/delete", calendar_routes.delete, name="calendar.delete")
+
+    app.router.add_get("/settings", settings.index, name="settings.index")
+    app.router.add_post(
+        "/settings/personality", settings.set_personality, name="settings.personality"
+    )
 
     return app
