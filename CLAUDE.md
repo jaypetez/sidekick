@@ -62,7 +62,7 @@ The set `LOCAL_REMINDER_TOOLS` in `agent.py` determines routing.
 
 1. Spawn MCP subprocess → wait for `session_ready` event
 2. Create AsyncIOScheduler → register built-in jobs → load custom reminders from JSON → start scheduler
-3. Create `FamilyAgent` with mcp_session, scheduler, bot, reminder_chat_id; calls `build_llm_client()` for the LLM
+3. Create `SidekickAgent` with mcp_session, scheduler, bot, reminder_chat_id; calls `build_llm_client()` for the LLM
 4. Load tool definitions (MCP tools + local reminder tool defs)
 5. If `SLACK_BOT_TOKEN` set, start `_run_slack()` as a background task
 

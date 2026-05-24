@@ -25,7 +25,7 @@ from mcp import ClientSession
 from telegram import Bot
 
 if TYPE_CHECKING:
-    from .agent import FamilyAgent
+    from .agent import SidekickAgent
 
 logger = logging.getLogger(__name__)
 
@@ -102,7 +102,7 @@ def _write_reminders_file(reminders: list[dict[str, Any]]) -> None:
     path.write_text(json.dumps(reminders, indent=2))
 
 
-def load_custom_reminders(scheduler: AsyncIOScheduler, agent: "FamilyAgent") -> None:
+def load_custom_reminders(scheduler: AsyncIOScheduler, agent: "SidekickAgent") -> None:
     """Load saved custom reminders and register them with the scheduler."""
     reminders = _read_reminders_file()
     tz = os.getenv("TIMEZONE", "America/Chicago")
@@ -118,7 +118,7 @@ def load_custom_reminders(scheduler: AsyncIOScheduler, agent: "FamilyAgent") -> 
 
 def _register_job(
     scheduler: AsyncIOScheduler,
-    agent: "FamilyAgent",
+    agent: "SidekickAgent",
     reminder: dict[str, Any],
     tz: str,
 ) -> None:
@@ -153,7 +153,7 @@ def _register_job(
 _REMINDER_CHAT_ID = -1
 
 
-async def send_custom_reminder(agent: "FamilyAgent", message: str) -> None:
+async def send_custom_reminder(agent: "SidekickAgent", message: str) -> None:
     """Process a reminder through the agent so Claude can call tools.
 
     The message is sent to Claude as if a user said it, so Claude can call
@@ -185,7 +185,7 @@ async def send_custom_reminder(agent: "FamilyAgent", message: str) -> None:
 
 def add_reminder(
     scheduler: AsyncIOScheduler,
-    agent: "FamilyAgent",
+    agent: "SidekickAgent",
     message: str,
     hour: int,
     minute: int,
@@ -225,7 +225,7 @@ def add_reminder(
 
 def update_reminder(
     scheduler: AsyncIOScheduler,
-    agent: "FamilyAgent",
+    agent: "SidekickAgent",
     reminder_id: str,
     message: str | None = None,
     hour: int | None = None,

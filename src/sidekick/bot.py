@@ -1,10 +1,10 @@
 """
-Sidekick — Family Telegram Calendar Bot
+Sidekick — Telegram + Slack chat bot.
 
 Entry point. Wires together:
   - Telegram bot (python-telegram-bot v21)
-  - mcp_server.py (subprocess MCP server for Google Calendar, Gmail, Tasks)
-  - FamilyAgent (Claude Haiku + tool-use loop)
+  - mcp_server.py (subprocess MCP server for calendar + tasks)
+  - SidekickAgent (Claude tool-use loop)
   - APScheduler (morning summary + pre-event reminders)
 
 Run:
@@ -33,7 +33,7 @@ from telegram.ext import (
 
 load_dotenv()
 
-from .agent import PERSONALITY_PRESETS, FamilyAgent  # noqa: E402
+from .agent import PERSONALITY_PRESETS, SidekickAgent  # noqa: E402
 from .platforms.base import IncomingMessage  # noqa: E402
 from .reminders import load_custom_reminders, setup_scheduler  # noqa: E402
 
@@ -71,7 +71,7 @@ async def handle_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 
 async def handle_reset(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     assert update.effective_chat is not None and update.message is not None
-    agent: FamilyAgent = context.bot_data["agent"]
+    agent: SidekickAgent = context.bot_data["agent"]
     agent.clear_history(update.effective_chat.id)
     await update.message.reply_text("Conversation history cleared!")
 
@@ -89,7 +89,7 @@ async def handle_get_id(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 
 async def handle_personality(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     assert update.message is not None
-    agent: FamilyAgent = context.bot_data["agent"]
+    agent: SidekickAgent = context.bot_data["agent"]
     args = " ".join(context.args) if context.args else ""
 
     if not args:
@@ -113,7 +113,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
     chat_id = update.effective_chat.id
     user_text = update.message.text
-    agent: FamilyAgent = context.bot_data["agent"]
+    agent: SidekickAgent = context.bot_data["agent"]
 
     await context.bot.send_chat_action(chat_id=chat_id, action=ChatAction.TYPING)
 
@@ -183,7 +183,7 @@ async def post_init(application: AppT) -> None:
 
     # Create and configure the agent with scheduler access for reminder tools
     reminder_chat_id = os.getenv("REMINDER_CHAT_ID")
-    agent = FamilyAgent(
+    agent = SidekickAgent(
         mcp_session,
         scheduler=scheduler,
         bot=application.bot,
@@ -191,7 +191,7 @@ async def post_init(application: AppT) -> None:
     )
     await agent.load_tools()
     application.bot_data["agent"] = agent
-    logger.info("FamilyAgent ready with %d tools", len(agent.tools))
+    logger.info("SidekickAgent ready with %d tools", len(agent.tools))
 
     # Load custom reminders now that the agent exists — reminders are
     # processed through the agent so Claude can call tools when they fire
@@ -206,7 +206,7 @@ async def post_init(application: AppT) -> None:
     logger.info("Sidekick is ready!")
 
 
-async def _run_slack(application: AppT, agent: FamilyAgent) -> None:
+async def _run_slack(application: AppT, agent: SidekickAgent) -> None:
     """Spin up the Slack platform and route messages through the same agent."""
     from .platforms.slack import SlackPlatform
 

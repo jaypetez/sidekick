@@ -77,7 +77,7 @@ Behind the scenes Claude (or your local model) is calling tools to read Chronary
                        │                 │
                        ▼                 ▼
               ┌─────────────────────────────┐
-              │       FamilyAgent           │
+              │      SidekickAgent          │
               │   (tool-use loop, history)  │
               └───┬────────────┬────────┬───┘
                   │            │        │
