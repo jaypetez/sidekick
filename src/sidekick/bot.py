@@ -402,9 +402,23 @@ async def _run_web(bot_data: dict[str, Any]) -> None:
 
     from .calendar.chronary import ChronaryProvider
     from .storage.sqlite_tasks import SQLiteTaskStore
+    from .web.auth import get_auth_token, is_loopback_host
 
     host = os.getenv("SIDEKICK_WEB_HOST", "127.0.0.1")
     port = int(os.getenv("SIDEKICK_WEB_PORT", "8080"))
+
+    # Defense in depth: never bind to a non-loopback interface without an
+    # auth token. The dashboard exposes chat + task management — leaving
+    # it open on the LAN with no auth would let any device on the network
+    # impersonate the operator.
+    if not is_loopback_host(host) and get_auth_token() is None:
+        logger.error(
+            "Refusing to start web dashboard on non-loopback host %r without "
+            "SIDEKICK_WEB_AUTH_TOKEN set. Either bind to 127.0.0.1/localhost/::1 "
+            "or set SIDEKICK_WEB_AUTH_TOKEN to a strong random value.",
+            host,
+        )
+        return
 
     # Web layer gets its own provider instances so the MCP subprocess's
     # store/provider stay isolated. SQLite WAL handles the concurrency.

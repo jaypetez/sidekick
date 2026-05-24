@@ -12,13 +12,18 @@ from __future__ import annotations
 from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import Any
+from urllib.parse import quote as _urlquote
 
 import aiohttp_jinja2
 import jinja2
 from aiohttp import web
+from aiohttp_session import AbstractStorage, session_middleware
+from aiohttp_session.cookie_storage import EncryptedCookieStorage
 
 from ..calendar.chronary import ChronaryProvider
 from ..storage.sqlite_tasks import SQLiteTaskStore
+from . import csrf as csrf_mod
+from .auth import load_or_create_session_secret
 from .handlers import (
     calendar_routes,
     chat,
@@ -27,6 +32,11 @@ from .handlers import (
     reminders,
     settings,
     tasks,
+)
+from .middleware import (
+    auth_middleware,
+    csrf_middleware,
+    security_headers_middleware,
 )
 
 
@@ -49,6 +59,52 @@ async def _no_cache_html_middleware(
     return response
 
 
+def _urlencode_filter(value: Any) -> str:
+    """Percent-encode ``value`` for safe use inside URL path segments."""
+    if value is None:
+        return ""
+    return _urlquote(str(value), safe="")
+
+
+async def _csrf_context(request: web.Request) -> dict[str, Any]:
+    """Expose the current request's CSRF token to every template."""
+    from aiohttp_session import get_session
+
+    session = await get_session(request)
+    return {"csrf_token": csrf_mod.get_or_create_token(session)}
+
+
+async def _csrf_endpoint(request: web.Request) -> web.Response:
+    """Return the current session's CSRF token as JSON.
+
+    Used by the test suite (and any future SPA-style client) to fetch a
+    token without scraping a rendered page. The endpoint itself is a GET,
+    so the CSRF middleware lets it through.
+    """
+    from aiohttp_session import get_session
+
+    session = await get_session(request)
+    token = csrf_mod.get_or_create_token(session)
+    return web.json_response({"csrf": token})
+
+
+def _build_session_storage() -> AbstractStorage:
+    """Construct the cookie-backed session storage.
+
+    ``EncryptedCookieStorage`` requires ``cryptography``. If it's not
+    available we fall back to ``SimpleCookieStorage`` so the dashboard
+    still works in minimal envs (test cookies are not security-sensitive
+    because the cookie's only payload is a random CSRF token).
+    """
+    secret = load_or_create_session_secret()
+    try:
+        return EncryptedCookieStorage(secret, cookie_name="SIDEKICK_SESSION", httponly=True)
+    except Exception:  # pragma: no cover - cryptography missing
+        from aiohttp_session import SimpleCookieStorage
+
+        return SimpleCookieStorage(cookie_name="SIDEKICK_SESSION")
+
+
 def make_app(
     *,
     bot_data: dict[str, Any],
@@ -62,7 +118,15 @@ def make_app(
     dedicated SQLite connection for the web layer — multiple readers /
     one writer is fine under WAL.
     """
-    app = web.Application(middlewares=[_no_cache_html_middleware])
+    storage = _build_session_storage()
+    middlewares: list[Any] = [
+        security_headers_middleware,
+        _no_cache_html_middleware,
+        auth_middleware,
+        session_middleware(storage),
+        csrf_middleware,
+    ]
+    app = web.Application(middlewares=middlewares)
     app["bot_data"] = bot_data
     app["task_store"] = task_store if task_store is not None else SQLiteTaskStore()
     # Calendar provider is constructed lazily — ChronaryProvider's __init__
@@ -71,17 +135,28 @@ def make_app(
     app["calendar"] = calendar_provider
 
     templates_dir = Path(__file__).parent / "templates"
-    aiohttp_jinja2.setup(
+    jinja_env = aiohttp_jinja2.setup(
         app,
         loader=jinja2.FileSystemLoader(str(templates_dir)),
-        context_processors=[aiohttp_jinja2.request_processor],
+        # autoescape=True is the linchpin of the XSS hardening: every
+        # ``{{ value }}`` in the templates is HTML-escaped by default.
+        autoescape=jinja2.select_autoescape(
+            enabled_extensions=("html", "htm", "xml"),
+            default_for_string=True,
+        ),
+        context_processors=[aiohttp_jinja2.request_processor, _csrf_context],
     )
+    # Override Jinja2's default ``urlencode`` (which preserves ``/``) with a
+    # stricter variant that escapes every reserved URL character — necessary
+    # because we use the filter inside path segments.
+    jinja_env.filters["urlencode"] = _urlencode_filter
 
     static_dir = Path(__file__).parent / "static"
     app.router.add_static("/static/", path=static_dir, name="static")
 
     app.router.add_get("/", dashboard.home, name="home")
     app.router.add_get("/health", health.health, name="health")
+    app.router.add_get("/_csrf", _csrf_endpoint, name="csrf")
 
     app.router.add_get("/chat", chat.index, name="chat.index")
     app.router.add_post("/chat", chat.send, name="chat.send")
@@ -96,12 +171,12 @@ def make_app(
     app.router.add_get("/tasks/{list_name}", tasks.detail, name="tasks.detail")
     app.router.add_post("/tasks/{list_name}/items", tasks.add_item, name="tasks.add_item")
     app.router.add_post(
-        "/tasks/{list_name}/items/{title}/complete",
+        "/tasks/{list_name}/items/{item_id}/complete",
         tasks.complete_item,
         name="tasks.complete_item",
     )
     app.router.add_post(
-        "/tasks/{list_name}/items/{title}/delete",
+        "/tasks/{list_name}/items/{item_id}/delete",
         tasks.delete_item,
         name="tasks.delete_item",
     )

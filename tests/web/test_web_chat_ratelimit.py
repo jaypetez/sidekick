@@ -30,7 +30,9 @@ def chat_app(bot_data):
 
 @pytest_asyncio.fixture
 async def chat_client(aiohttp_client, chat_app):
-    return await aiohttp_client(chat_app)
+    from .conftest import CsrfClient
+
+    return CsrfClient(await aiohttp_client(chat_app))
 
 
 @pytest.mark.asyncio

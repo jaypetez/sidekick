@@ -7,6 +7,7 @@
   <h2>Personality</h2>
   <p>Current: {{ personality if personality else 'default (friendly assistant)' }}</p>
   <form method="post" action="/settings/personality">
+    <input type="hidden" name="_csrf" value="{{ csrf_token }}">
     <div class="field">
       <label>Style</label>
       <input name="style" list="presets" placeholder="e.g. pirate, formal, butler, or freeform">

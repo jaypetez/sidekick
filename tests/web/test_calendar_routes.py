@@ -41,7 +41,9 @@ def cal_app(bot_data, calendar_provider):
 
 @pytest_asyncio.fixture
 async def cal_client(aiohttp_client, cal_app):
-    return await aiohttp_client(cal_app)
+    from .conftest import CsrfClient
+
+    return CsrfClient(await aiohttp_client(cal_app))
 
 
 @pytest.mark.asyncio

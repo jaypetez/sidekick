@@ -103,14 +103,57 @@ class SQLiteTaskStore(TaskStore):
         return cursor.lastrowid
 
     def find_task_by_title(self, list_id: int, title: str) -> dict[str, Any] | None:
-        """First incomplete task matching title (case-insensitive partial match)."""
+        """First incomplete task matching ``title`` exactly (case-insensitive).
+
+        **Behavior change (PR #1 of security tier):** previously this used a
+        ``LIKE %title%`` partial match, which the web UI relied on to map
+        button clicks back to rows. The web layer now uses the ``*_by_id``
+        variants below; the title-based methods retain only exact-match
+        semantics so the chat-driven flow (where Claude echoes the exact
+        item it just listed) stays predictable.
+        """
         row = self._conn.execute(
             "SELECT id, title, status FROM tasks "
             "WHERE list_id = ? AND status = 'incomplete' "
-            "AND title LIKE ? COLLATE NOCASE LIMIT 1",
-            (list_id, f"%{title}%"),
+            "AND title = ? COLLATE NOCASE LIMIT 1",
+            (list_id, title),
         ).fetchone()
         return dict(row) if row else None
+
+    def get_item_by_id(self, item_id: int) -> dict[str, Any] | None:
+        """Return a task row by its primary key, or None if missing."""
+        row = self._conn.execute(
+            "SELECT id, list_id, title, status FROM tasks WHERE id = ?",
+            (item_id,),
+        ).fetchone()
+        return dict(row) if row else None
+
+    def complete_item_by_id(self, item_id: int) -> dict[str, Any]:
+        """Mark a task complete by primary key.
+
+        Used by the web handlers — id-based ops sidestep the title-encoding
+        and partial-match hazards that the original LIKE-based lookup
+        introduced.
+        """
+        row = self.get_item_by_id(item_id)
+        if not row:
+            return {"error": f"No task with id {item_id}"}
+        self._conn.execute(
+            "UPDATE tasks SET status = 'completed', "
+            "completed_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now') WHERE id = ?",
+            (item_id,),
+        )
+        self._conn.commit()
+        return {"status": "completed", "title": row["title"], "id": item_id}
+
+    def delete_item_by_id(self, item_id: int) -> dict[str, Any]:
+        """Delete a task by primary key. Returns error dict when missing."""
+        row = self.get_item_by_id(item_id)
+        if not row:
+            return {"error": f"No task with id {item_id}"}
+        self._conn.execute("DELETE FROM tasks WHERE id = ?", (item_id,))
+        self._conn.commit()
+        return {"status": "deleted", "title": row["title"], "id": item_id}
 
     # ------------------------------------------------------------------
     # TaskStore interface
@@ -119,11 +162,11 @@ class SQLiteTaskStore(TaskStore):
     def list_tasks(self, args: dict[str, Any]) -> list[dict[str, Any]]:
         list_id = self.get_or_create_task_list(args["list_name"])
         rows = self._conn.execute(
-            "SELECT title, status FROM tasks "
+            "SELECT id, title, status FROM tasks "
             "WHERE list_id = ? AND status = 'incomplete' ORDER BY id",
             (list_id,),
         ).fetchall()
-        return [{"title": r["title"], "status": r["status"]} for r in rows]
+        return [{"id": r["id"], "title": r["title"], "status": r["status"]} for r in rows]
 
     def add_tasks(self, args: dict[str, Any]) -> dict[str, Any]:
         list_id = self.get_or_create_task_list(args["list_name"])

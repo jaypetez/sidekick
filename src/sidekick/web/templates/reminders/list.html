@@ -18,12 +18,14 @@
         <td>{{ r.next_run|default('—') }}</td>
         <td>{{ 'Paused' if r.paused else 'Active' }}</td>
         <td>
-          <form method="post" action="/reminders/{{ r.id }}" style="display:inline">
+          <form method="post" action="/reminders/{{ r.id|urlencode }}" style="display:inline">
+            <input type="hidden" name="_csrf" value="{{ csrf_token }}">
             <input type="hidden" name="enabled" value="{{ 'false' if not r.paused else 'true' }}">
             <button type="submit" class="secondary">{{ 'Pause' if not r.paused else 'Resume' }}</button>
           </form>
           {% if r.id not in builtin_ids %}
-          <form method="post" action="/reminders/{{ r.id }}/delete" style="display:inline">
+          <form method="post" action="/reminders/{{ r.id|urlencode }}/delete" style="display:inline">
+            <input type="hidden" name="_csrf" value="{{ csrf_token }}">
             <button type="submit" class="danger">Delete</button>
           </form>
           {% endif %}
@@ -37,6 +39,7 @@
 <section style="margin-top:32px">
   <h2>Create custom reminder</h2>
   <form method="post" action="/reminders">
+    <input type="hidden" name="_csrf" value="{{ csrf_token }}">
     <div class="field"><label>Message</label><input name="message" required></div>
     <div class="field"><label>Hour (0–23)</label><input name="hour" type="number" min="0" max="23" required></div>
     <div class="field"><label>Minute (0–59)</label><input name="minute" type="number" min="0" max="59" required></div>

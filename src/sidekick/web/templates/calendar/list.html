@@ -23,7 +23,8 @@
       <td>{{ e.summary }}</td>
       <td>{{ e.location }}</td>
       <td>
-        <form method="post" action="/events/{{ e.id }}/delete" style="display:inline">
+        <form method="post" action="/events/{{ e.id|urlencode }}/delete" style="display:inline">
+          <input type="hidden" name="_csrf" value="{{ csrf_token }}">
           <button type="submit" class="danger">Delete</button>
         </form>
       </td>
@@ -38,6 +39,7 @@
 <section style="margin-top:32px">
   <h2>Create event</h2>
   <form method="post" action="/events">
+    <input type="hidden" name="_csrf" value="{{ csrf_token }}">
     <div class="field"><label>Summary</label><input name="summary" required></div>
     <div class="field"><label>Start (ISO 8601, e.g. 2026-05-25T14:00:00-05:00)</label><input name="start_datetime" required></div>
     <div class="field"><label>End (ISO 8601)</label><input name="end_datetime" required></div>
@@ -51,6 +53,7 @@
   <h2>Edit event</h2>
   <p>Past the event ID and the fields you want changed; leave others blank.</p>
   <form method="post" action="" id="edit-form" onsubmit="this.action = '/events/' + encodeURIComponent(document.getElementById('edit_id').value)">
+    <input type="hidden" name="_csrf" value="{{ csrf_token }}">
     <div class="field"><label>Event ID</label><input id="edit_id" name="event_id" required></div>
     <div class="field"><label>Summary</label><input name="summary"></div>
     <div class="field"><label>Start (ISO 8601)</label><input name="start_datetime"></div>
