@@ -118,11 +118,22 @@ def test_list_tasks_only_incomplete(store):
     assert titles == ["a", "c"]
 
 
-def test_complete_task_partial_match_case_insensitive(store):
+def test_complete_task_exact_match_case_insensitive(store):
+    """Previously partial-match; PR #1 of security tier dropped LIKE
+    to remove an injection-shaped surprise. Lookup is still
+    case-insensitive but title must match in full."""
     store.add_tasks({"list_name": "X", "items": ["Buy organic MILK"]})
-    result = store.complete_task({"list_name": "X", "task_title": "milk"})
+    # Exact (case-insensitive) match succeeds.
+    result = store.complete_task({"list_name": "X", "task_title": "buy organic milk"})
     assert result["status"] == "completed"
     assert "MILK" in result["title"]
+
+
+def test_complete_task_partial_no_longer_matches(store):
+    """The old LIKE %title% behavior is gone — a partial substring won't match."""
+    store.add_tasks({"list_name": "X", "items": ["Buy organic MILK"]})
+    result = store.complete_task({"list_name": "X", "task_title": "milk"})
+    assert "error" in result
 
 
 def test_complete_task_not_found(store):
@@ -137,6 +148,48 @@ def test_delete_task_removes_row(store):
 
     titles = [t["title"] for t in store.list_tasks({"list_name": "X"})]
     assert titles == ["b"]
+
+
+def test_complete_item_by_id_marks_completed(store):
+    """The web layer uses id-based ops to sidestep title encoding."""
+    store.add_tasks({"list_name": "X", "items": ["alpha"]})
+    items = store.list_tasks({"list_name": "X"})
+    item_id = items[0]["id"]
+
+    result = store.complete_item_by_id(item_id)
+    assert result == {"status": "completed", "title": "alpha", "id": item_id}
+    assert store.list_tasks({"list_name": "X"}) == []
+
+
+def test_complete_item_by_id_returns_error_when_missing(store):
+    assert "error" in store.complete_item_by_id(99999)
+
+
+def test_delete_item_by_id_removes_row(store):
+    store.add_tasks({"list_name": "X", "items": ["alpha", "beta"]})
+    items = store.list_tasks({"list_name": "X"})
+    alpha_id = next(i["id"] for i in items if i["title"] == "alpha")
+
+    result = store.delete_item_by_id(alpha_id)
+    assert result["status"] == "deleted"
+    assert [i["title"] for i in store.list_tasks({"list_name": "X"})] == ["beta"]
+
+
+def test_delete_item_by_id_returns_error_when_missing(store):
+    assert "error" in store.delete_item_by_id(99999)
+
+
+def test_get_item_by_id_returns_row(store):
+    store.add_tasks({"list_name": "X", "items": ["alpha"]})
+    item_id = store.list_tasks({"list_name": "X"})[0]["id"]
+    row = store.get_item_by_id(item_id)
+    assert row is not None
+    assert row["title"] == "alpha"
+    assert row["status"] == "incomplete"
+
+
+def test_get_item_by_id_returns_none_for_missing(store):
+    assert store.get_item_by_id(99999) is None
 
 
 def test_delete_task_not_found(store):

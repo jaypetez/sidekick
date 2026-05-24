@@ -18,10 +18,12 @@ def task_store():
         {"title": "Costco", "id": "1"},
         {"title": "Home", "id": "2"},
     ]
-    store.list_tasks.return_value = [{"title": "milk", "status": "incomplete"}]
+    store.list_tasks.return_value = [{"id": 7, "title": "milk", "status": "incomplete"}]
     store.add_tasks.return_value = {"status": "added"}
     store.complete_task.return_value = {"status": "completed", "title": "milk"}
     store.delete_task.return_value = {"status": "deleted", "title": "milk"}
+    store.complete_item_by_id.return_value = {"status": "completed", "title": "milk", "id": 7}
+    store.delete_item_by_id.return_value = {"status": "deleted", "title": "milk", "id": 7}
     store.clear_completed.return_value = {"status": "cleared"}
     store.delete_task_list.return_value = {"status": "deleted"}
     return store
@@ -34,7 +36,9 @@ def tasks_app(bot_data, task_store):
 
 @pytest_asyncio.fixture
 async def tasks_client(aiohttp_client, tasks_app):
-    return await aiohttp_client(tasks_app)
+    from .conftest import CsrfClient
+
+    return CsrfClient(await aiohttp_client(tasks_app))
 
 
 @pytest.mark.asyncio
@@ -75,29 +79,29 @@ async def test_add_item_rejects_empty_title(tasks_client):
 
 @pytest.mark.asyncio
 async def test_complete_item_calls_store(tasks_client, task_store):
-    resp = await tasks_client.post("/tasks/Costco/items/milk/complete", allow_redirects=False)
+    resp = await tasks_client.post("/tasks/Costco/items/7/complete", allow_redirects=False)
     assert resp.status == 303
-    task_store.complete_task.assert_called_once_with({"list_name": "Costco", "task_title": "milk"})
+    task_store.complete_item_by_id.assert_called_once_with(7)
 
 
 @pytest.mark.asyncio
 async def test_complete_item_404s_when_not_found(tasks_client, task_store):
-    task_store.complete_task.return_value = {"error": "No task matching 'milk' found"}
-    resp = await tasks_client.post("/tasks/Costco/items/milk/complete", allow_redirects=False)
+    task_store.complete_item_by_id.return_value = {"error": "No task with id 7"}
+    resp = await tasks_client.post("/tasks/Costco/items/7/complete", allow_redirects=False)
     assert resp.status == 404
 
 
 @pytest.mark.asyncio
 async def test_delete_item_calls_store(tasks_client, task_store):
-    resp = await tasks_client.post("/tasks/Costco/items/milk/delete", allow_redirects=False)
+    resp = await tasks_client.post("/tasks/Costco/items/7/delete", allow_redirects=False)
     assert resp.status == 303
-    task_store.delete_task.assert_called_once()
+    task_store.delete_item_by_id.assert_called_once_with(7)
 
 
 @pytest.mark.asyncio
 async def test_delete_item_404s_when_missing(tasks_client, task_store):
-    task_store.delete_task.return_value = {"error": "No task matching 'xyz' found"}
-    resp = await tasks_client.post("/tasks/Costco/items/xyz/delete", allow_redirects=False)
+    task_store.delete_item_by_id.return_value = {"error": "No task with id 7"}
+    resp = await tasks_client.post("/tasks/Costco/items/7/delete", allow_redirects=False)
     assert resp.status == 404
 
 

@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import logging
 from typing import Any
+from urllib.parse import quote
 
 import aiohttp_jinja2
 from aiohttp import web
@@ -58,27 +59,33 @@ async def add_item(request: web.Request) -> web.Response:
     except Exception as exc:
         logger.exception("add_tasks failed for list %s", list_name)
         raise web.HTTPBadGateway(reason=f"task store error: {exc}") from exc
-    raise web.HTTPSeeOther(location=f"/tasks/{list_name}")
+    raise web.HTTPSeeOther(location=f"/tasks/{quote(list_name, safe='')}")
 
 
 async def complete_item(request: web.Request) -> web.Response:
     store = _store(request)
     list_name = request.match_info["list_name"]
-    title = request.match_info["title"]
-    result = await run_sync(store.complete_task, {"list_name": list_name, "task_title": title})
+    try:
+        item_id = int(request.match_info["item_id"])
+    except ValueError as exc:
+        raise web.HTTPBadRequest(reason="item id must be an integer") from exc
+    result = await run_sync(store.complete_item_by_id, item_id)
     if "error" in result:
         raise web.HTTPNotFound(reason=result["error"])
-    raise web.HTTPSeeOther(location=f"/tasks/{list_name}")
+    raise web.HTTPSeeOther(location=f"/tasks/{quote(list_name, safe='')}")
 
 
 async def delete_item(request: web.Request) -> web.Response:
     store = _store(request)
     list_name = request.match_info["list_name"]
-    title = request.match_info["title"]
-    result = await run_sync(store.delete_task, {"list_name": list_name, "task_title": title})
+    try:
+        item_id = int(request.match_info["item_id"])
+    except ValueError as exc:
+        raise web.HTTPBadRequest(reason="item id must be an integer") from exc
+    result = await run_sync(store.delete_item_by_id, item_id)
     if "error" in result:
         raise web.HTTPNotFound(reason=result["error"])
-    raise web.HTTPSeeOther(location=f"/tasks/{list_name}")
+    raise web.HTTPSeeOther(location=f"/tasks/{quote(list_name, safe='')}")
 
 
 async def clear_completed(request: web.Request) -> web.Response:
@@ -89,7 +96,7 @@ async def clear_completed(request: web.Request) -> web.Response:
     except Exception as exc:
         logger.exception("clear_completed failed for list %s", list_name)
         raise web.HTTPBadGateway(reason=f"task store error: {exc}") from exc
-    raise web.HTTPSeeOther(location=f"/tasks/{list_name}")
+    raise web.HTTPSeeOther(location=f"/tasks/{quote(list_name, safe='')}")
 
 
 async def delete_list(request: web.Request) -> web.Response:
