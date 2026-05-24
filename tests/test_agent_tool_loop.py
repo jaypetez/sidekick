@@ -1,4 +1,4 @@
-"""Tests for the FamilyAgent tool-use loop and reminder dispatch."""
+"""Tests for the SidekickAgent tool-use loop and reminder dispatch."""
 
 import json
 from types import SimpleNamespace
@@ -7,11 +7,11 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import anthropic
 import pytest
 
-from sidekick.agent import FamilyAgent
+from sidekick.agent import SidekickAgent
 
 
 def _make_agent(*, scheduler=None, bot=None, llm=None):
-    return FamilyAgent(
+    return SidekickAgent(
         mcp_session=MagicMock(),
         scheduler=scheduler,
         bot=bot,

@@ -2,13 +2,13 @@ import json
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
-from sidekick.agent import PERSONALITY_PRESETS, FamilyAgent
+from sidekick.agent import PERSONALITY_PRESETS, SidekickAgent
 
 
 def _make_agent(scheduler=None, bot=None):
-    """Create a FamilyAgent with mocked dependencies."""
+    """Create a SidekickAgent with mocked dependencies."""
     session = MagicMock()
-    return FamilyAgent(
+    return SidekickAgent(
         mcp_session=session,
         scheduler=scheduler,
         bot=bot,

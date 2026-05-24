@@ -164,7 +164,7 @@ REMINDER_TOOL_DEFS = [
 ]
 
 
-class FamilyAgent:
+class SidekickAgent:
     def __init__(
         self,
         mcp_session: ClientSession,
