@@ -6,10 +6,10 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from sidekick.reminders import (
+    _REMINDER_CHAT_ID,
     _format_time,
     _read_reminders_file,
     _register_job,
-    _REMINDER_CHAT_ID,
     _write_reminders_file,
     add_reminder,
     get_all_reminders,
