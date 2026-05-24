@@ -27,21 +27,32 @@ This is the fastest way to kick the tires before deciding whether to wire up Tel
 # 1. From the repo root, drop in the example .env (overwrites the default).
 cp examples/01-local-ollama-docker/.env.example .env
 
-# 2. Open .env and paste your Chronary API key into CHRONARY_API_KEY.
+# 2. Generate a strong random token and paste it into SIDEKICK_WEB_AUTH_TOKEN.
+#    The web UI is bound to 0.0.0.0 inside the container (so the host can
+#    reach it via the published port) and the bot refuses to start a
+#    non-loopback dashboard without one.
+#      *nix:    python -c "import secrets; print(secrets.token_urlsafe(32))"
+#      Windows: -join ((48..57)+(97..122)+(65..90) | Get-Random -Count 48 | %{[char]$_})
+
+# 3. Open .env and paste your Chronary API key into CHRONARY_API_KEY.
 #    Leave the AGENT_ID and CALENDAR_ID alone for the moment — the next step prints them.
 
-# 3. Bootstrap Chronary. This creates an agent + calendar tied to your key
+# 4. Bootstrap Chronary. This creates an agent + calendar tied to your key
 #    and prints the IDs to paste back into .env.
 docker compose run --rm sidekick sidekick-init
 #   → copy the printed CHRONARY_AGENT_ID and CHRONARY_CALENDAR_ID into .env
 
-# 4. Bring up the stack with the ollama profile.
+# 5. Bring up the stack with the ollama profile.
 docker compose --profile ollama up -d
 
-# 5. Pull the model into the ollama volume (~9GB, one-time download).
-docker compose exec ollama ollama pull qwen2.5:14b
+# 6. Pull the model into the ollama volume (~9GB, one-time download).
+docker compose --profile ollama exec ollama ollama pull qwen2.5:14b
 
-# 6. Open your browser.
+# 7. Open your browser. The dashboard requires the auth token on every
+#    request — easiest path is a browser extension that sets the header:
+#      Authorization: Bearer <your token>
+#    Or hit it from the terminal:
+#      curl -H "Authorization: Bearer $TOKEN" http://localhost:8080/chat
 #    Chat:      http://localhost:8080/chat
 #    Dashboard: http://localhost:8080/
 ```
@@ -105,4 +116,4 @@ Then re-pull: `docker compose exec ollama ollama pull <model>` and restart sidek
 - **Reminders won't fire.** The morning summary and pre-event reminders deliver via Telegram. With no Telegram token they're disabled — the scheduler still starts so the *Reminders* page works, but jobs that need a Bot are skipped.
 - **Local LLM tool-use is meaningfully worse than Claude.** Multi-step plans sometimes misfire. If something doesn't work, try again with a slight rephrasing — and consider swapping to Anthropic if you need production reliability.
 - **The web UI binds to `0.0.0.0` inside the container** so the host browser can reach it. The host port (`8080`) is published only on localhost by default, so this is not internet-exposed. If you change Docker's port publishing, mind the security implications.
-- **No auth.** Anyone who can reach `localhost:8080` (on your machine) can chat with the bot. Don't expose this to a shared network without putting auth in front of it.
+- **No auth by default — example 01 enables it for you.** The bot's defense-in-depth check refuses to bind to a non-loopback host (`0.0.0.0` inside the container) without `SIDEKICK_WEB_AUTH_TOKEN`, so the example's `.env.example` makes this explicit. If you flip the host back to `127.0.0.1` (loopback) the token becomes optional, and anyone on your machine can chat with the bot. Don't expose this to a shared network without keeping the token in place.
