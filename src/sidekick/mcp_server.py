@@ -1,38 +1,26 @@
 """
-MCP server wrapping Google Calendar, Gmail, and Google Tasks APIs.
+MCP server exposing Chronary calendar + local SQLite task store as tools.
 
-Exposes thirteen tools to Claude:
-  - list_events, create_event, update_event, delete_event
-  - send_email
-  - list_task_lists, list_tasks, add_tasks, complete_task, delete_task,
-    clear_completed, delete_task_list, rename_task_list
+Exposes twelve tools to Claude:
+  - list_events, create_event, update_event, delete_event   (Chronary)
+  - list_task_lists, list_tasks, add_tasks, complete_task,
+    delete_task, clear_completed, delete_task_list, rename_task_list
+                                                            (SQLite)
 """
 
 import asyncio
-import base64
 import json
 import os
-from email.mime.multipart import MIMEMultipart
-from email.mime.text import MIMEText
 
-from google.auth.transport.requests import Request
-from google.oauth2.credentials import Credentials
-from googleapiclient.discovery import build
-from googleapiclient.errors import HttpError
 from mcp.server import Server
 import mcp.types as types
 
 from .calendar.chronary import ChronaryProvider
 from .storage.sqlite_tasks import SQLiteTaskStore
 
-SCOPES = [
-    "https://www.googleapis.com/auth/gmail.send",
-]
-
 
 class MCPServer:
     def __init__(self):
-        self.gmail = None
         self.timezone = os.getenv("TIMEZONE", "America/Chicago")
         self._calendar: ChronaryProvider | None = None
         self._tasks_store: SQLiteTaskStore | None = None
@@ -56,34 +44,6 @@ class MCPServer:
         if self._tasks_store is None:
             self._tasks_store = SQLiteTaskStore()
         return self._tasks_store
-
-    # ------------------------------------------------------------------
-    # Google Auth (Gmail only — removed in step 5)
-    # ------------------------------------------------------------------
-
-    def build_google_service(self) -> None:
-        """Build the Gmail service. Removed entirely in step 5.
-
-        token.json must already exist — generate it on your laptop by
-        running auth.py, then SCP it to ~/.config/sidekick/token.json.
-        """
-        token_file = os.getenv("GOOGLE_TOKEN_FILE", "token.json")
-
-        if not os.path.exists(token_file):
-            raise FileNotFoundError(
-                f"token.json not found at {token_file}.\n"
-                "Run auth.py on your laptop to generate it, then SCP it to this server.\n"
-                "See README.md for instructions."
-            )
-
-        creds = Credentials.from_authorized_user_file(token_file, SCOPES)
-
-        if creds.expired and creds.refresh_token:
-            creds.refresh(Request())
-            with open(token_file, "w") as f:
-                f.write(creds.to_json())
-
-        self.gmail = build("gmail", "v1", credentials=creds)
 
     # ------------------------------------------------------------------
     # Tool registration
@@ -159,7 +119,7 @@ class MCPServer:
                         "properties": {
                             "event_id": {
                                 "type": "string",
-                                "description": "The Google Calendar event ID",
+                                "description": "The calendar event ID",
                             },
                             "summary": {"type": "string"},
                             "start_datetime": {"type": "string"},
@@ -178,32 +138,10 @@ class MCPServer:
                         "properties": {
                             "event_id": {
                                 "type": "string",
-                                "description": "The Google Calendar event ID to delete",
+                                "description": "The calendar event ID to delete",
                             }
                         },
                         "required": ["event_id"],
-                    },
-                ),
-                types.Tool(
-                    name="send_email",
-                    description="Send an email via Gmail.",
-                    inputSchema={
-                        "type": "object",
-                        "properties": {
-                            "to": {
-                                "type": "string",
-                                "description": "Recipient email address",
-                            },
-                            "subject": {
-                                "type": "string",
-                                "description": "Email subject line",
-                            },
-                            "body": {
-                                "type": "string",
-                                "description": "Plain text email body",
-                            },
-                        },
-                        "required": ["to", "subject", "body"],
                     },
                 ),
                 types.Tool(
@@ -341,13 +279,6 @@ class MCPServer:
                     None, self._dispatch, name, args
                 )
                 return [types.TextContent(type="text", text=json.dumps(result))]
-            except HttpError as e:
-                import logging
-                logging.getLogger(__name__).error(
-                    "Google API error calling %s: %s %s", name, e.resp.status, e.reason
-                )
-                error = {"error": str(e.reason), "code": e.resp.status}
-                return [types.TextContent(type="text", text=json.dumps(error))]
             except Exception as e:
                 import logging
                 logging.getLogger(__name__).error(
@@ -357,13 +288,12 @@ class MCPServer:
                 return [types.TextContent(type="text", text=json.dumps(error))]
 
     def _dispatch(self, name: str, args: dict) -> dict | list:
-        """Synchronous dispatch to the appropriate API call."""
+        """Synchronous dispatch to the appropriate provider call."""
         dispatch = {
             "list_events": self._list_events,
             "create_event": self._create_event,
             "update_event": self._update_event,
             "delete_event": self._delete_event,
-            "send_email": self._send_email,
             "list_task_lists": self._list_task_lists,
             "list_tasks": self._list_tasks,
             "add_tasks": self._add_tasks,
@@ -379,9 +309,7 @@ class MCPServer:
         return {"error": f"Unknown tool: {name}"}
 
     # ------------------------------------------------------------------
-    # Tool implementations — delegate to providers (calendar, tasks_store).
-    # Helper methods (_find_task_list etc.) remain as thin shims so existing
-    # tests that patch MCPServer internals keep working.
+    # Tool implementations — delegate to providers.
     # ------------------------------------------------------------------
 
     def _list_events(self, args: dict) -> list:
@@ -396,30 +324,14 @@ class MCPServer:
     def _delete_event(self, args: dict) -> dict:
         return self.calendar.delete_event(args)
 
-    def _send_email(self, args: dict) -> dict:
-        # Stays inline — removed entirely in step 5.
-        message = MIMEMultipart()
-        message["to"] = args["to"]
-        message["subject"] = args["subject"]
-        message.attach(MIMEText(args["body"], "plain"))
-        raw = base64.urlsafe_b64encode(message.as_bytes()).decode()
-        result = self.gmail.users().messages().send(
-            userId="me", body={"raw": raw}
-        ).execute()
-        return {"status": "sent", "message_id": result.get("id")}
-
-    # ------------------------------------------------------------------
-    # Task helpers — delegated. Kept on MCPServer so tests can monkey-patch
-    # or directly invoke them by name.
-    # ------------------------------------------------------------------
-
-    def _find_task_list(self, list_name: str) -> str | None:
+    # Helpers kept so tests / external callers can poke at the store
+    def _find_task_list(self, list_name: str) -> int | None:
         return self.tasks_store.find_task_list(list_name)
 
-    def _get_or_create_task_list(self, list_name: str) -> str:
+    def _get_or_create_task_list(self, list_name: str) -> int:
         return self.tasks_store.get_or_create_task_list(list_name)
 
-    def _find_task_by_title(self, list_id: str, title: str) -> dict | None:
+    def _find_task_by_title(self, list_id: int, title: str) -> dict | None:
         return self.tasks_store.find_task_by_title(list_id, title)
 
     def _list_tasks(self, args: dict) -> list:
@@ -452,13 +364,12 @@ if __name__ == "__main__":
     from mcp.server.stdio import stdio_server
 
     async def _serve() -> None:
-        cal = MCPServer()
-        cal.build_google_service()
+        server = MCPServer()
         async with stdio_server() as (read_stream, write_stream):
-            await cal.server.run(
+            await server.server.run(
                 read_stream,
                 write_stream,
-                cal.server.create_initialization_options(),
+                server.server.create_initialization_options(),
             )
 
     asyncio.run(_serve())

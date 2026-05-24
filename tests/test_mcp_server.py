@@ -26,7 +26,6 @@ def test_dispatch_all_tools_registered():
     server = _make_server()
     expected_tools = [
         "list_events", "create_event", "update_event", "delete_event",
-        "send_email",
         "list_task_lists", "list_tasks", "add_tasks", "complete_task",
         "delete_task", "clear_completed", "delete_task_list", "rename_task_list",
     ]
