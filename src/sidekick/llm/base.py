@@ -20,8 +20,8 @@ class LLMClient(ABC):
         self,
         *,
         system: str,
-        messages: list[dict],
-        tools: list[dict],
+        messages: list[dict[str, Any]],
+        tools: list[dict[str, Any]],
         max_tokens: int = 1024,
     ) -> Any:
         """Run one LLM round-trip and return the provider's raw response.

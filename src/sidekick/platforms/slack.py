@@ -19,9 +19,13 @@ targets don't collide with Telegram's "tg:" ids).
 import asyncio
 import logging
 import os
-from typing import Awaitable, Callable
+from typing import TYPE_CHECKING, Any
 
 from .base import ChatPlatform, CommandHandler, DefaultHandler, IncomingMessage
+
+if TYPE_CHECKING:
+    from slack_bolt.adapter.socket_mode.aiohttp import AsyncSocketModeHandler
+    from slack_bolt.app.async_app import AsyncApp
 
 logger = logging.getLogger(__name__)
 
@@ -41,9 +45,9 @@ class SlackPlatform(ChatPlatform):
         self._app_token = app_token or os.environ["SLACK_APP_TOKEN"]
         self._commands: dict[str, CommandHandler] = {}
         self._default_handler: DefaultHandler | None = None
-        self._app = None
-        self._socket_handler = None
-        self._app_task: asyncio.Task | None = None
+        self._app: AsyncApp | None = None
+        self._socket_handler: AsyncSocketModeHandler | None = None
+        self._app_task: asyncio.Task[None] | None = None
 
     # ------------------------------------------------------------------
     # ChatPlatform interface
@@ -52,19 +56,19 @@ class SlackPlatform(ChatPlatform):
     async def start(self) -> None:
         # Imported lazily so the dependency is only required when Slack
         # is actually enabled.
-        from slack_bolt.app.async_app import AsyncApp
         from slack_bolt.adapter.socket_mode.aiohttp import AsyncSocketModeHandler
+        from slack_bolt.app.async_app import AsyncApp
 
         self._app = AsyncApp(token=self._bot_token)
         self._register_listeners(self._app)
         self._socket_handler = AsyncSocketModeHandler(self._app, self._app_token)
         # start_async() returns a coroutine that runs forever — run as a task
-        self._app_task = asyncio.create_task(self._socket_handler.start_async())
+        self._app_task = asyncio.create_task(self._socket_handler.start_async())  # type: ignore[no-untyped-call]
         logger.info("Slack platform started (socket mode)")
 
     async def stop(self) -> None:
         if self._socket_handler is not None:
-            await self._socket_handler.close_async()
+            await self._socket_handler.close_async()  # type: ignore[no-untyped-call]
         if self._app_task is not None and not self._app_task.done():
             self._app_task.cancel()
         logger.info("Slack platform stopped")
@@ -95,9 +99,9 @@ class SlackPlatform(ChatPlatform):
     # Internals
     # ------------------------------------------------------------------
 
-    def _register_listeners(self, app) -> None:
+    def _register_listeners(self, app: "AsyncApp") -> None:
         @app.event("message")
-        async def _on_message(event, say):
+        async def _on_message(event: dict[str, Any], say: Any) -> None:
             # Ignore bot's own messages and channel join/leave events.
             if event.get("subtype") is not None:
                 return
@@ -127,9 +131,7 @@ class SlackPlatform(ChatPlatform):
             if self._default_handler is None:
                 return
 
-            msg = IncomingMessage(
-                chat_id=chat_id, sender_id=user, text=text, platform=self.name
-            )
+            msg = IncomingMessage(chat_id=chat_id, sender_id=user, text=text, platform=self.name)
             try:
                 reply = await self._default_handler(msg)
             except Exception:

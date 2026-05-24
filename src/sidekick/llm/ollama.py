@@ -37,16 +37,16 @@ class OllamaClient(LLMClient):
         base_url: str | None = None,
         client: Any = None,
     ) -> None:
-        self.model = model or os.getenv("OLLAMA_MODEL", "llama3.1:8b")
-        self._base_url = base_url or os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
+        self.model = model or os.getenv("OLLAMA_MODEL") or "llama3.1:8b"
+        self._base_url = base_url or os.getenv("OLLAMA_BASE_URL") or "http://localhost:11434"
         self._client = client  # lazily constructed when actually used
 
     async def chat(
         self,
         *,
         system: str,
-        messages: list[dict],
-        tools: list[dict],
+        messages: list[dict[str, Any]],
+        tools: list[dict[str, Any]],
         max_tokens: int = 1024,
     ) -> Any:
         client = self._get_client()
@@ -66,7 +66,7 @@ class OllamaClient(LLMClient):
 
     def _get_client(self) -> Any:
         if self._client is None:
-            import ollama  # type: ignore[import-not-found]
+            import ollama
 
             self._client = ollama.AsyncClient(host=self._base_url)
         return self._client
@@ -77,7 +77,7 @@ class OllamaClient(LLMClient):
 # ----------------------------------------------------------------------
 
 
-def _tool_anthropic_to_ollama(tool: dict) -> dict:
+def _tool_anthropic_to_ollama(tool: dict[str, Any]) -> dict[str, Any]:
     """Translate a single Anthropic-style tool def to Ollama/OpenAI shape."""
     return {
         "type": "function",
@@ -89,10 +89,10 @@ def _tool_anthropic_to_ollama(tool: dict) -> dict:
     }
 
 
-def _messages_anthropic_to_ollama(messages: list[dict]) -> list[dict]:
+def _messages_anthropic_to_ollama(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Flatten Anthropic messages (which may have list-of-block content) to
     the role/content/tool_calls shape Ollama expects."""
-    out: list[dict] = []
+    out: list[dict[str, Any]] = []
     for msg in messages:
         role = msg["role"]
         content = msg["content"]
@@ -104,21 +104,23 @@ def _messages_anthropic_to_ollama(messages: list[dict]) -> list[dict]:
         # content is a list of blocks
         if role == "assistant":
             text_parts: list[str] = []
-            tool_calls: list[dict] = []
+            tool_calls: list[dict[str, Any]] = []
             for block in content:
                 btype = _block_attr(block, "type")
                 if btype == "text":
                     text_parts.append(_block_attr(block, "text", ""))
                 elif btype == "tool_use":
-                    tool_calls.append({
-                        "id": _block_attr(block, "id"),
-                        "type": "function",
-                        "function": {
-                            "name": _block_attr(block, "name"),
-                            "arguments": _block_attr(block, "input", {}),
-                        },
-                    })
-            entry: dict = {"role": "assistant", "content": "\n".join(text_parts)}
+                    tool_calls.append(
+                        {
+                            "id": _block_attr(block, "id"),
+                            "type": "function",
+                            "function": {
+                                "name": _block_attr(block, "name"),
+                                "arguments": _block_attr(block, "input", {}),
+                            },
+                        }
+                    )
+            entry: dict[str, Any] = {"role": "assistant", "content": "\n".join(text_parts)}
             if tool_calls:
                 entry["tool_calls"] = tool_calls
             out.append(entry)
@@ -129,11 +131,13 @@ def _messages_anthropic_to_ollama(messages: list[dict]) -> list[dict]:
             for block in content:
                 btype = _block_attr(block, "type")
                 if btype == "tool_result":
-                    out.append({
-                        "role": "tool",
-                        "tool_call_id": _block_attr(block, "tool_use_id"),
-                        "content": _block_attr(block, "content", ""),
-                    })
+                    out.append(
+                        {
+                            "role": "tool",
+                            "tool_call_id": _block_attr(block, "tool_use_id"),
+                            "content": _block_attr(block, "content", ""),
+                        }
+                    )
                 elif btype == "text":
                     out.append({"role": "user", "content": _block_attr(block, "text", "")})
             continue
@@ -148,8 +152,9 @@ def _response_ollama_to_anthropic(response: Any) -> SimpleNamespace:
     """Wrap an Ollama response so the agent's tool-use loop reads it like
     an Anthropic response (`.stop_reason`, `.content[*].{type,text,id,name,input}`)."""
     msg = response["message"] if isinstance(response, dict) else response.message
-    tool_calls = (msg.get("tool_calls") if isinstance(msg, dict)
-                  else getattr(msg, "tool_calls", None)) or []
+    tool_calls = (
+        msg.get("tool_calls") if isinstance(msg, dict) else getattr(msg, "tool_calls", None)
+    ) or []
     text = msg.get("content", "") if isinstance(msg, dict) else getattr(msg, "content", "")
 
     blocks: list[Any] = []
@@ -165,14 +170,15 @@ def _response_ollama_to_anthropic(response: Any) -> SimpleNamespace:
                 fn_args = json.loads(fn_args)
             except json.JSONDecodeError:
                 fn_args = {}
-        call_id = (call.get("id") if isinstance(call, dict)
-                   else getattr(call, "id", None))
-        blocks.append(SimpleNamespace(
-            type="tool_use",
-            id=call_id or f"call_{uuid.uuid4().hex[:8]}",
-            name=fn_name,
-            input=fn_args or {},
-        ))
+        call_id = call.get("id") if isinstance(call, dict) else getattr(call, "id", None)
+        blocks.append(
+            SimpleNamespace(
+                type="tool_use",
+                id=call_id or f"call_{uuid.uuid4().hex[:8]}",
+                name=fn_name,
+                input=fn_args or {},
+            )
+        )
 
     stop_reason = "tool_use" if tool_calls else "end_turn"
     return SimpleNamespace(stop_reason=stop_reason, content=blocks)

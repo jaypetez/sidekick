@@ -15,6 +15,7 @@ import os
 import time
 from datetime import datetime, timedelta
 from pathlib import Path
+from typing import TYPE_CHECKING, Any
 from zoneinfo import ZoneInfo
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -22,6 +23,9 @@ from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.interval import IntervalTrigger
 from mcp import ClientSession
 from telegram import Bot
+
+if TYPE_CHECKING:
+    from .agent import FamilyAgent
 
 logger = logging.getLogger(__name__)
 
@@ -78,26 +82,27 @@ def setup_scheduler(bot: Bot, mcp_session: ClientSession) -> AsyncIOScheduler:
 # ------------------------------------------------------------------
 
 
-def _read_reminders_file() -> list[dict]:
+def _read_reminders_file() -> list[dict[str, Any]]:
     """Read reminders from JSON file. Returns empty list if not found."""
     path = Path(REMINDERS_FILE)
     if not path.exists():
         return []
     try:
-        return json.loads(path.read_text())
+        data: Any = json.loads(path.read_text())
+        return data if isinstance(data, list) else []
     except (json.JSONDecodeError, OSError):
         logger.exception("Failed to read reminders file")
         return []
 
 
-def _write_reminders_file(reminders: list[dict]) -> None:
+def _write_reminders_file(reminders: list[dict[str, Any]]) -> None:
     """Write reminders list to JSON file."""
     path = Path(REMINDERS_FILE)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(reminders, indent=2))
 
 
-def load_custom_reminders(scheduler: AsyncIOScheduler, agent) -> None:
+def load_custom_reminders(scheduler: AsyncIOScheduler, agent: "FamilyAgent") -> None:
     """Load saved custom reminders and register them with the scheduler."""
     reminders = _read_reminders_file()
     tz = os.getenv("TIMEZONE", "America/Chicago")
@@ -112,10 +117,14 @@ def load_custom_reminders(scheduler: AsyncIOScheduler, agent) -> None:
 
 
 def _register_job(
-    scheduler: AsyncIOScheduler, agent, reminder: dict, tz: str
+    scheduler: AsyncIOScheduler,
+    agent: "FamilyAgent",
+    reminder: dict[str, Any],
+    tz: str,
 ) -> None:
     """Register a single custom reminder as an APScheduler job."""
     schedule = reminder["schedule"]
+    trigger: CronTrigger | IntervalTrigger
     if schedule["type"] == "cron":
         trigger = CronTrigger(
             hour=schedule["hour"],
@@ -144,7 +153,7 @@ def _register_job(
 _REMINDER_CHAT_ID = -1
 
 
-async def send_custom_reminder(agent, message: str) -> None:
+async def send_custom_reminder(agent: "FamilyAgent", message: str) -> None:
     """Process a reminder through the agent so Claude can call tools.
 
     The message is sent to Claude as if a user said it, so Claude can call
@@ -157,13 +166,17 @@ async def send_custom_reminder(agent, message: str) -> None:
         logger.warning("REMINDER_CHAT_ID not set — skipping custom reminder: %s", message)
         return
     chat_id = int(chat_id_str)
+    bot = agent.bot
+    if bot is None:
+        logger.warning("Agent has no bot attached — skipping reminder: %s", message)
+        return
     try:
         response = await agent.process_message(_REMINDER_CHAT_ID, message)
-        await agent.bot.send_message(chat_id=chat_id, text=response, parse_mode="Markdown")
+        await bot.send_message(chat_id=chat_id, text=response, parse_mode="Markdown")
     except Exception:
         logger.exception("Agent failed to process reminder, sending raw message")
         try:
-            await agent.bot.send_message(chat_id=chat_id, text=f"Reminder: {message}")
+            await bot.send_message(chat_id=chat_id, text=f"Reminder: {message}")
         except Exception:
             logger.exception("Failed to send fallback reminder to chat %s", chat_id)
     finally:
@@ -172,18 +185,19 @@ async def send_custom_reminder(agent, message: str) -> None:
 
 def add_reminder(
     scheduler: AsyncIOScheduler,
-    agent,
+    agent: "FamilyAgent",
     message: str,
     hour: int,
     minute: int,
     chat_id: int,
     day_of_week: str | None = None,
     interval_minutes: int | None = None,
-) -> dict:
+) -> dict[str, Any]:
     """Add a new custom reminder. Returns the reminder dict."""
     reminder_id = f"reminder_{int(time.time())}"
     tz = os.getenv("TIMEZONE", "America/Chicago")
 
+    schedule: dict[str, Any]
     if interval_minutes:
         schedule = {"type": "interval", "interval_minutes": interval_minutes}
     else:
@@ -191,7 +205,7 @@ def add_reminder(
         if day_of_week:
             schedule["day_of_week"] = day_of_week
 
-    reminder = {
+    reminder: dict[str, Any] = {
         "id": reminder_id,
         "chat_id": chat_id,
         "message": message,
@@ -211,14 +225,14 @@ def add_reminder(
 
 def update_reminder(
     scheduler: AsyncIOScheduler,
-    agent,
+    agent: "FamilyAgent",
     reminder_id: str,
     message: str | None = None,
     hour: int | None = None,
     minute: int | None = None,
     day_of_week: str | None = None,
     enabled: bool | None = None,
-) -> dict:
+) -> dict[str, Any]:
     """Update an existing reminder (built-in or custom). Returns updated info."""
     tz = os.getenv("TIMEZONE", "America/Chicago")
 
@@ -235,7 +249,9 @@ def update_reminder(
         if hour is not None or minute is not None:
             old_trigger = job.trigger
             new_hour = hour if hour is not None else old_trigger.fields[5].expressions[0].first  # noqa: E501
-            new_minute = minute if minute is not None else old_trigger.fields[6].expressions[0].first  # noqa: E501
+            new_minute = (
+                minute if minute is not None else old_trigger.fields[6].expressions[0].first
+            )  # noqa: E501
             scheduler.reschedule_job(
                 reminder_id,
                 trigger=CronTrigger(hour=new_hour, minute=new_minute, timezone=tz),
@@ -277,7 +293,7 @@ def update_reminder(
     return {"status": "updated", "id": reminder_id}
 
 
-def remove_reminder(scheduler: AsyncIOScheduler, reminder_id: str) -> dict:
+def remove_reminder(scheduler: AsyncIOScheduler, reminder_id: str) -> dict[str, Any]:
     """Remove a custom reminder. Built-in reminders cannot be removed (disable instead)."""
     if reminder_id in BUILTIN_IDS:
         return {
@@ -309,12 +325,12 @@ def remove_reminder(scheduler: AsyncIOScheduler, reminder_id: str) -> dict:
     return {"status": "removed", "id": reminder_id}
 
 
-def get_all_reminders(scheduler: AsyncIOScheduler) -> list[dict]:
+def get_all_reminders(scheduler: AsyncIOScheduler) -> list[dict[str, Any]]:
     """Return info about all active scheduled jobs."""
     jobs = scheduler.get_jobs()
-    result = []
+    result: list[dict[str, Any]] = []
     for job in jobs:
-        info = {
+        info: dict[str, Any] = {
             "id": job.id,
             "name": job.name,
             "next_run": job.next_run_time.isoformat() if job.next_run_time else None,
@@ -333,13 +349,15 @@ def get_all_reminders(scheduler: AsyncIOScheduler) -> list[dict]:
     active_ids = {j.id for j in jobs}
     for r in file_reminders:
         if r["id"] not in active_ids:
-            result.append({
-                "id": r["id"],
-                "name": r.get("message", ""),
-                "next_run": None,
-                "paused": True,
-                "type": r["schedule"]["type"],
-            })
+            result.append(
+                {
+                    "id": r["id"],
+                    "name": r.get("message", ""),
+                    "next_run": None,
+                    "paused": True,
+                    "type": r["schedule"]["type"],
+                }
+            )
 
     return result
 
@@ -349,9 +367,7 @@ def get_all_reminders(scheduler: AsyncIOScheduler) -> list[dict]:
 # ------------------------------------------------------------------
 
 
-async def send_morning_summary(
-    bot: Bot, mcp_session: ClientSession, chat_id: str
-) -> None:
+async def send_morning_summary(bot: Bot, mcp_session: ClientSession, chat_id: str) -> None:
     """Fetch today's events and send a morning briefing."""
     tz = os.getenv("TIMEZONE", "America/Chicago")
     today = datetime.now(ZoneInfo(tz)).date().isoformat()
@@ -359,7 +375,7 @@ async def send_morning_summary(
         result = await mcp_session.call_tool(
             "list_events", {"start_date": today, "end_date": today}
         )
-        events = json.loads(result.content[0].text) if result.content else []
+        events = _events_from_tool_result(result.content)
     except Exception:
         logger.exception("Failed to fetch events for morning summary")
         return
@@ -397,7 +413,7 @@ async def send_pre_event_reminders(
             "list_events",
             {"start_date": today, "end_date": today, "max_results": 50},
         )
-        events = json.loads(result.content[0].text) if result.content else []
+        events = _events_from_tool_result(result.content)
     except Exception:
         logger.exception("Failed to fetch events for pre-event check")
         return
@@ -422,9 +438,7 @@ async def send_pre_event_reminders(
             mins_away = int((start_dt - now).total_seconds() / 60)
             text = f"Reminder: *{event['summary']}* starts in {mins_away} minutes!"
             try:
-                await bot.send_message(
-                    chat_id=int(chat_id), text=text, parse_mode="Markdown"
-                )
+                await bot.send_message(chat_id=int(chat_id), text=text, parse_mode="Markdown")
                 _reminded_event_ids.add(event_id)
                 logger.info("Sent pre-event reminder for event %s", event_id)
             except Exception:
@@ -432,10 +446,24 @@ async def send_pre_event_reminders(
 
     # Prune event IDs for events that have already passed to keep the set small
     _reminded_event_ids.difference_update(
-        eid
-        for eid in list(_reminded_event_ids)
-        if eid not in {e.get("id") for e in events}
+        eid for eid in list(_reminded_event_ids) if eid not in {e.get("id") for e in events}
     )
+
+
+def _events_from_tool_result(content: list[Any]) -> list[dict[str, Any]]:
+    """Pull the JSON-encoded event list out of an MCP tool-call result.
+
+    MCP content blocks come in several shapes (TextContent, ImageContent, etc.);
+    list_events always returns TextContent, but mypy can't narrow without the check.
+    """
+    if not content:
+        return []
+    first = content[0]
+    text = getattr(first, "text", None)
+    if not text:
+        return []
+    parsed: Any = json.loads(text)
+    return parsed if isinstance(parsed, list) else []
 
 
 def _format_time(iso_str: str) -> str:

@@ -11,17 +11,18 @@ adapter; this file just locks in the contract.
 """
 
 from abc import ABC, abstractmethod
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from typing import Awaitable, Callable
 
 
 @dataclass(frozen=True)
 class IncomingMessage:
     """A platform-neutral inbound message."""
-    chat_id: str            # e.g. "tg:-100123"
-    sender_id: str          # platform-native user identifier
+
+    chat_id: str  # e.g. "tg:-100123"
+    sender_id: str  # platform-native user identifier
     text: str
-    platform: str           # "telegram", "slack"
+    platform: str  # "telegram", "slack"
 
 
 CommandHandler = Callable[[IncomingMessage, list[str]], Awaitable[str | None]]

@@ -16,6 +16,7 @@ import logging
 import os
 import sys
 from pathlib import Path
+from typing import Any, TypeAlias
 
 from dotenv import load_dotenv
 from mcp import ClientSession, StdioServerParameters
@@ -32,9 +33,14 @@ from telegram.ext import (
 
 load_dotenv()
 
-from .agent import PERSONALITY_PRESETS, FamilyAgent
-from .platforms.base import IncomingMessage
-from .reminders import load_custom_reminders, setup_scheduler
+from .agent import PERSONALITY_PRESETS, FamilyAgent  # noqa: E402
+from .platforms.base import IncomingMessage  # noqa: E402
+from .reminders import load_custom_reminders, setup_scheduler  # noqa: E402
+
+# python-telegram-bot's Application is generic over (bot, context, user_data,
+# chat_data, bot_data, job_queue). We don't customize any of them — alias to Any
+# everywhere so we don't have to repeat the full parameter list per usage.
+AppT: TypeAlias = Application[Any, Any, Any, Any, Any, Any]
 
 logging.basicConfig(
     format="%(asctime)s %(levelname)s %(name)s — %(message)s",
@@ -49,6 +55,7 @@ logger = logging.getLogger(__name__)
 
 
 async def handle_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    assert update.message is not None
     await update.message.reply_text(
         "Hi! I'm Sidekick, your personal assistant.\n\n"
         "Just talk to me naturally — try things like:\n"
@@ -63,12 +70,14 @@ async def handle_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 
 
 async def handle_reset(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    assert update.effective_chat is not None and update.message is not None
     agent: FamilyAgent = context.bot_data["agent"]
     agent.clear_history(update.effective_chat.id)
     await update.message.reply_text("Conversation history cleared!")
 
 
 async def handle_get_id(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    assert update.effective_chat is not None and update.message is not None
     chat_id = update.effective_chat.id
     await update.message.reply_text(
         f"This chat's ID is: `{chat_id}`\n\n"
@@ -79,6 +88,7 @@ async def handle_get_id(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 
 
 async def handle_personality(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    assert update.message is not None
     agent: FamilyAgent = context.bot_data["agent"]
     args = " ".join(context.args) if context.args else ""
 
@@ -98,7 +108,7 @@ async def handle_personality(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    if not update.message or not update.message.text:
+    if not update.message or not update.message.text or not update.effective_chat:
         return
 
     chat_id = update.effective_chat.id
@@ -111,9 +121,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         reply = await agent.process_message(chat_id, user_text)
     except Exception:
         logger.exception("Agent error for chat %d", chat_id)
-        await update.message.reply_text(
-            "Sorry, something went wrong. Please try again."
-        )
+        await update.message.reply_text("Sorry, something went wrong. Please try again.")
         return
 
     await update.message.reply_text(reply, parse_mode=ParseMode.MARKDOWN)
@@ -128,7 +136,7 @@ async def _run_mcp_subprocess(
     params: StdioServerParameters,
     session_ready: asyncio.Event,
     shutdown_event: asyncio.Event,
-    application: Application,
+    application: AppT,
 ) -> None:
     """Keep the MCP subprocess alive for the bot's lifetime.
 
@@ -144,7 +152,7 @@ async def _run_mcp_subprocess(
             await shutdown_event.wait()
 
 
-async def post_init(application: Application) -> None:
+async def post_init(application: AppT) -> None:
     """Called by PTB after the event loop starts — wire up all components."""
     logger.info("Starting Sidekick...")
 
@@ -198,7 +206,7 @@ async def post_init(application: Application) -> None:
     logger.info("Sidekick is ready!")
 
 
-async def _run_slack(application: Application, agent: FamilyAgent) -> None:
+async def _run_slack(application: AppT, agent: FamilyAgent) -> None:
     """Spin up the Slack platform and route messages through the same agent."""
     from .platforms.slack import SlackPlatform
 
@@ -224,9 +232,7 @@ async def _run_slack(application: Application, agent: FamilyAgent) -> None:
             current = agent.personality or "default (friendly assistant)"
             presets = ", ".join(k for k in PERSONALITY_PRESETS if k != "default")
             return (
-                f"Current personality: {current}\n"
-                f"Usage: /personality <style>\n"
-                f"Presets: {presets}"
+                f"Current personality: {current}\nUsage: /personality <style>\nPresets: {presets}"
             )
         label = agent.set_personality(" ".join(args))
         return f"Personality set to: {label}"
@@ -239,7 +245,7 @@ async def _run_slack(application: Application, agent: FamilyAgent) -> None:
     await platform.start()
 
 
-async def post_shutdown(application: Application) -> None:
+async def post_shutdown(application: AppT) -> None:
     """Clean up on shutdown."""
     scheduler = application.bot_data.get("scheduler")
     if scheduler and scheduler.running:
@@ -262,7 +268,7 @@ async def post_shutdown(application: Application) -> None:
     if mcp_task and not mcp_task.done():
         try:
             await asyncio.wait_for(mcp_task, timeout=5.0)
-        except (asyncio.TimeoutError, Exception):
+        except (TimeoutError, Exception):
             mcp_task.cancel()
 
     logger.info("Sidekick shut down cleanly")
@@ -279,20 +285,14 @@ def main() -> None:
         raise ValueError("TELEGRAM_BOT_TOKEN is not set in .env")
 
     application = (
-        Application.builder()
-        .token(token)
-        .post_init(post_init)
-        .post_shutdown(post_shutdown)
-        .build()
+        Application.builder().token(token).post_init(post_init).post_shutdown(post_shutdown).build()
     )
 
     application.add_handler(CommandHandler("start", handle_start))
     application.add_handler(CommandHandler("reset", handle_reset))
     application.add_handler(CommandHandler("get_id", handle_get_id))
     application.add_handler(CommandHandler("personality", handle_personality))
-    application.add_handler(
-        MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message)
-    )
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
     logger.info("Starting polling...")
     application.run_polling(drop_pending_updates=True)
