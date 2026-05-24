@@ -24,6 +24,8 @@ from apscheduler.triggers.interval import IntervalTrigger
 from mcp import ClientSession
 from telegram import Bot
 
+from .telegram_format import send_safe
+
 if TYPE_CHECKING:
     from .agent import SidekickAgent
 
@@ -183,7 +185,7 @@ async def send_custom_reminder(agent: "SidekickAgent", message: str) -> None:
         return
     try:
         response = await agent.process_message(_REMINDER_CHAT_ID, message)
-        await bot.send_message(chat_id=chat_id, text=response, parse_mode="Markdown")
+        await send_safe(bot, chat_id, response)
     except Exception:
         logger.exception("Agent failed to process reminder, sending raw message")
         try:
@@ -449,7 +451,7 @@ async def send_pre_event_reminders(
             mins_away = int((start_dt - now).total_seconds() / 60)
             text = f"Reminder: *{event['summary']}* starts in {mins_away} minutes!"
             try:
-                await bot.send_message(chat_id=int(chat_id), text=text, parse_mode="Markdown")
+                await send_safe(bot, int(chat_id), text)
                 _reminded_event_ids.add(event_id)
                 logger.info("Sent pre-event reminder for event %s", event_id)
             except Exception:

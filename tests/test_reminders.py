@@ -4,6 +4,7 @@ from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from telegram.constants import ParseMode
 
 from sidekick.reminders import (
     _format_time,
@@ -202,7 +203,9 @@ async def test_send_custom_reminder_processes_through_agent(monkeypatch):
 
     agent.process_message.assert_called_once_with(-1, "What's on the calendar today?")
     agent.bot.send_message.assert_called_once_with(
-        chat_id=-100999, text="You have 3 events today.", parse_mode="Markdown"
+        chat_id=-100999,
+        text="You have 3 events today\\.",
+        parse_mode=ParseMode.MARKDOWN_V2,
     )
     agent.clear_history.assert_called_once_with(-1)
 

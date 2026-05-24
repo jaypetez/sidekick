@@ -38,7 +38,7 @@ def escape_v2(text: str) -> str:
     return escape_markdown(text, version=2)
 
 
-async def send_safe(bot: "Bot", chat_id: int, text: str, **kwargs: Any) -> "Message":
+async def send_safe(bot: Bot, chat_id: int, text: str, **kwargs: Any) -> Message:
     """Send ``text`` as MarkdownV2 with a plain-text fallback.
 
     Returns the resulting :class:`telegram.Message`. ``kwargs`` are
@@ -54,13 +54,11 @@ async def send_safe(bot: "Bot", chat_id: int, text: str, **kwargs: Any) -> "Mess
         return await bot.send_message(chat_id=chat_id, text=text, **kwargs)
 
 
-async def reply_safe(message: "Message", text: str, **kwargs: Any) -> "Message":
+async def reply_safe(message: Message, text: str, **kwargs: Any) -> Message:
     """Reply to ``message`` using MarkdownV2, falling back to plain text."""
     escaped = escape_v2(text)
     try:
-        return await message.reply_text(
-            text=escaped, parse_mode=ParseMode.MARKDOWN_V2, **kwargs
-        )
+        return await message.reply_text(text=escaped, parse_mode=ParseMode.MARKDOWN_V2, **kwargs)
     except BadRequest:
         logger.warning("Telegram rejected MarkdownV2 reply; resending as plain text")
         return await message.reply_text(text=text, **kwargs)

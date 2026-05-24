@@ -45,9 +45,7 @@ async def test_send_safe_uses_markdown_v2_on_success():
 @pytest.mark.asyncio
 async def test_send_safe_falls_back_to_plain_text_on_bad_request():
     bot = MagicMock()
-    bot.send_message = AsyncMock(
-        side_effect=[BadRequest("can't parse entities"), "plain-msg"]
-    )
+    bot.send_message = AsyncMock(side_effect=[BadRequest("can't parse entities"), "plain-msg"])
     result = await send_safe(bot, 7, "tricky [text]")
     assert bot.send_message.await_count == 2
     second_kwargs = bot.send_message.await_args_list[1].kwargs
@@ -72,9 +70,7 @@ async def test_reply_safe_uses_markdown_v2_on_success():
 @pytest.mark.asyncio
 async def test_reply_safe_falls_back_on_bad_request():
     message = MagicMock()
-    message.reply_text = AsyncMock(
-        side_effect=[BadRequest("entity"), "plain-reply"]
-    )
+    message.reply_text = AsyncMock(side_effect=[BadRequest("entity"), "plain-reply"])
     result = await reply_safe(message, "raw _text_")
     assert message.reply_text.await_count == 2
     second_kwargs = message.reply_text.await_args_list[1].kwargs
