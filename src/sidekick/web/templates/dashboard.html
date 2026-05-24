@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+{% block title %}Dashboard{% endblock %}
+{% block content %}
+<h1>Dashboard</h1>
+
+<section class="tiles">
+  <article class="tile">
+    <h2>Scheduler</h2>
+    <p class="status {{ 'ok' if scheduler_running else 'down' }}">
+      {{ 'Running' if scheduler_running else 'Stopped' }}
+    </p>
+  </article>
+  <article class="tile">
+    <h2>MCP subprocess</h2>
+    <p class="status {{ 'ok' if mcp_up else 'down' }}">
+      {{ 'Up' if mcp_up else 'Down' }}
+    </p>
+  </article>
+  <article class="tile">
+    <h2>Active reminders</h2>
+    <p class="count">{{ reminder_count }}</p>
+  </article>
+  <article class="tile">
+    <h2>Tools loaded</h2>
+    <p class="count">{{ tool_count }}</p>
+  </article>
+</section>
+
+<section class="personality-card">
+  <h2>Personality</h2>
+  <p>{{ personality if personality else 'default (friendly assistant)' }}</p>
+  <a href="/settings">Change</a>
+</section>
+{% endblock %}

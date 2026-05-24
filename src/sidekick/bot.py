@@ -36,6 +36,7 @@ load_dotenv()
 from .agent import PERSONALITY_PRESETS, SidekickAgent  # noqa: E402
 from .platforms.base import IncomingMessage  # noqa: E402
 from .reminders import load_custom_reminders, setup_scheduler  # noqa: E402
+from .web import make_app as make_web_app  # noqa: E402
 
 # python-telegram-bot's Application is generic over (bot, context, user_data,
 # chat_data, bot_data, job_queue). We don't customize any of them — alias to Any
@@ -203,7 +204,43 @@ async def post_init(application: AppT) -> None:
         application.bot_data["slack_task"] = slack_task
         logger.info("Slack adapter enabled")
 
+    # Web admin dashboard — enabled by default, binds 127.0.0.1 only.
+    if os.getenv("SIDEKICK_WEB_ENABLED", "true").lower() not in {"0", "false", "no"}:
+        web_task = asyncio.create_task(_run_web(application))
+        application.bot_data["web_task"] = web_task
+        logger.info("Web dashboard enabled")
+
     logger.info("Sidekick is ready!")
+
+
+async def _run_web(application: AppT) -> None:
+    """Run the in-process admin dashboard.
+
+    Builds an aiohttp app sharing PTB's ``bot_data`` and serves it on the
+    configured host/port (defaults to localhost:8080). Stays alive until the
+    task is cancelled in ``post_shutdown``.
+    """
+    from aiohttp import web as aiohttp_web
+
+    host = os.getenv("SIDEKICK_WEB_HOST", "127.0.0.1")
+    port = int(os.getenv("SIDEKICK_WEB_PORT", "8080"))
+
+    app = make_web_app(bot_data=application.bot_data)
+    runner = aiohttp_web.AppRunner(app)
+    await runner.setup()
+    application.bot_data["web_runner"] = runner
+
+    site = aiohttp_web.TCPSite(runner, host, port)
+    await site.start()
+    logger.info("Web dashboard listening on http://%s:%d", host, port)
+
+    # Keep the task alive until shutdown cancels us.
+    try:
+        while True:
+            await asyncio.sleep(3600)
+    except asyncio.CancelledError:
+        await runner.cleanup()
+        raise
 
 
 async def _run_slack(application: AppT, agent: SidekickAgent) -> None:
@@ -258,6 +295,15 @@ async def post_shutdown(application: AppT) -> None:
             await slack_platform.stop()
         except Exception:
             logger.exception("Error stopping Slack platform")
+
+    # Stop the web dashboard if it was running.
+    web_task = application.bot_data.get("web_task")
+    if web_task is not None and not web_task.done():
+        web_task.cancel()
+        try:
+            await web_task
+        except (asyncio.CancelledError, Exception):
+            pass
 
     # Signal the MCP subprocess task to exit cleanly
     shutdown_event = application.bot_data.get("shutdown_event")
