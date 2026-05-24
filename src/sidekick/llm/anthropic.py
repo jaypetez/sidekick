@@ -15,7 +15,13 @@ from .base import LLMClient
 class AnthropicClient(LLMClient):
     def __init__(self, *, model: str | None = None, api_key: str | None = None) -> None:
         self.model = model or os.getenv("CLAUDE_MODEL") or "claude-haiku-4-5-20251001"
-        self._client = anthropic.AsyncAnthropic(api_key=api_key or os.environ["ANTHROPIC_API_KEY"])
+        resolved_key = api_key or os.getenv("ANTHROPIC_API_KEY")
+        if not resolved_key:
+            raise RuntimeError(
+                "ANTHROPIC_API_KEY is not set — set it in your environment "
+                "or switch to a local model with LLM_PROVIDER=ollama."
+            )
+        self._client = anthropic.AsyncAnthropic(api_key=resolved_key)
 
     async def chat(
         self,

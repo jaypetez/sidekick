@@ -292,29 +292,45 @@ class SidekickAgent:
                         continue
                     logger.info("Calling tool %s with args %s", block.name, block.input)
 
+                    is_error = False
                     if block.name in LOCAL_REMINDER_TOOLS:
                         # Handle reminder tools locally
-                        result_text = json.dumps(
-                            self._handle_reminder_tool(block.name, block.input)
-                        )
-                    else:
-                        # Forward to MCP subprocess
-                        mcp_result = await self.session.call_tool(block.name, block.input)
-                        if mcp_result.content:
-                            first = mcp_result.content[0]
-                            result_text = (
-                                first.text if hasattr(first, "text") else '{"error": "no result"}'
+                        try:
+                            result_text = json.dumps(
+                                self._handle_reminder_tool(block.name, block.input)
                             )
-                        else:
-                            result_text = '{"error": "no result"}'
+                        except Exception as exc:
+                            logger.exception("Local reminder tool %s failed", block.name)
+                            result_text = json.dumps({"error": str(exc)})
+                            is_error = True
+                    else:
+                        # Forward to MCP subprocess — wrap so a transport/server
+                        # error becomes a tool_result the LLM can recover from,
+                        # not an unhandled exception that aborts the whole turn.
+                        try:
+                            mcp_result = await self.session.call_tool(block.name, block.input)
+                            if mcp_result.content:
+                                first = mcp_result.content[0]
+                                result_text = (
+                                    first.text
+                                    if hasattr(first, "text")
+                                    else '{"error": "no result"}'
+                                )
+                            else:
+                                result_text = '{"error": "no result"}'
+                        except Exception as exc:
+                            logger.exception("MCP tool %s failed", block.name)
+                            result_text = json.dumps({"error": f"tool {block.name} failed: {exc}"})
+                            is_error = True
 
-                    tool_results.append(
-                        {
-                            "type": "tool_result",
-                            "tool_use_id": block.id,
-                            "content": result_text,
-                        }
-                    )
+                    tool_result_block: dict[str, Any] = {
+                        "type": "tool_result",
+                        "tool_use_id": block.id,
+                        "content": result_text,
+                    }
+                    if is_error:
+                        tool_result_block["is_error"] = True
+                    tool_results.append(tool_result_block)
 
                 # All tool results go back in a single user message
                 history.append({"role": "user", "content": tool_results})

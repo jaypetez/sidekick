@@ -172,6 +172,62 @@ async def test_process_message_unexpected_stop_reason_with_no_text():
     assert reply == "(no response)"
 
 
+@pytest.mark.asyncio
+async def test_mcp_tool_failure_becomes_tool_result_with_is_error():
+    """When session.call_tool raises, the loop must surface an error
+    tool_result back to the LLM rather than aborting the whole turn."""
+    llm = MagicMock()
+    captured_messages: list[list[dict]] = []
+
+    async def fake_chat(*, system, messages, tools, max_tokens):
+        captured_messages.append([dict(m) for m in messages])
+        if len(captured_messages) == 1:
+            return _tool_use_response("list_events", {})
+        return _text_response("Recovered.")
+
+    llm.chat = fake_chat
+    agent = _make_agent(llm=llm)
+    agent.session.call_tool = AsyncMock(side_effect=RuntimeError("mcp transport gone"))
+
+    reply = await agent.process_message(42, "go")
+    assert reply == "Recovered."
+
+    # On the recovery turn the user message must contain a tool_result with
+    # is_error=True so the LLM knows the call failed.
+    follow_up = captured_messages[1][-1]
+    assert follow_up["role"] == "user"
+    block = follow_up["content"][0]
+    assert block["type"] == "tool_result"
+    assert block.get("is_error") is True
+    payload = json.loads(block["content"])
+    assert "mcp transport gone" in payload["error"]
+
+
+@pytest.mark.asyncio
+async def test_local_reminder_tool_failure_becomes_tool_result_with_is_error():
+    """Local reminder tool exceptions are also captured into tool_result, not raised."""
+    llm = MagicMock()
+    captured_messages: list[list[dict]] = []
+
+    async def fake_chat(*, system, messages, tools, max_tokens):
+        captured_messages.append([dict(m) for m in messages])
+        if len(captured_messages) == 1:
+            return _tool_use_response("list_reminders", {})
+        return _text_response("Handled.")
+
+    llm.chat = fake_chat
+    scheduler = MagicMock()
+    agent = _make_agent(llm=llm, scheduler=scheduler, bot=MagicMock())
+    with patch("sidekick.agent.get_all_reminders", side_effect=RuntimeError("scheduler crashed")):
+        reply = await agent.process_message(42, "list")
+
+    assert reply == "Handled."
+    follow_up = captured_messages[1][-1]
+    block = follow_up["content"][0]
+    assert block.get("is_error") is True
+    assert "scheduler crashed" in json.loads(block["content"])["error"]
+
+
 # -------------------------------------------------------------------
 # _handle_reminder_tool dispatch
 # -------------------------------------------------------------------

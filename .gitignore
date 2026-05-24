@@ -29,3 +29,14 @@ htmlcov/
 
 # Logs
 *.log
+
+# Smoke-test artifacts (scripts/smoke_test_web_only.py)
+.smoke-*
+
+# Example data dirs created by docker compose
+data/
+
+# Generated screenshots — kept out of git unless explicitly committed.
+# Remove this exclusion if you regenerate via scripts/capture_screenshots.py
+# and want to ship them in the README.
+# docs/screenshots/*.png

@@ -37,8 +37,13 @@ REMINDERS_FILE = os.getenv(
 BUILTIN_IDS = {"morning_summary", "pre_event_check"}
 
 
-def setup_scheduler(bot: Bot, mcp_session: ClientSession) -> AsyncIOScheduler:
-    """Create, configure, and start the scheduler. Returns the running scheduler."""
+def setup_scheduler(bot: Bot | None, mcp_session: ClientSession) -> AsyncIOScheduler:
+    """Create, configure, and start the scheduler. Returns the running scheduler.
+
+    ``bot`` may be ``None`` in web-only mode (no Telegram). In that case the
+    built-in jobs that need a Telegram ``Bot`` to deliver messages are skipped;
+    the scheduler still runs for custom reminders that don't need delivery.
+    """
     tz = os.getenv("TIMEZONE", "America/Chicago")
     reminder_chat_id = os.getenv("REMINDER_CHAT_ID")
     morning_time = os.getenv("MORNING_REMINDER_TIME", "07:30")
@@ -46,7 +51,13 @@ def setup_scheduler(bot: Bot, mcp_session: ClientSession) -> AsyncIOScheduler:
 
     scheduler = AsyncIOScheduler(timezone=tz)
 
-    if reminder_chat_id:
+    if bot is None:
+        logger.warning(
+            "No Telegram bot attached — built-in morning summary and pre-event "
+            "reminders are disabled. Custom reminders still run but cannot deliver "
+            "messages until a Bot is wired up."
+        )
+    elif reminder_chat_id:
         hour, minute = morning_time.split(":")
         scheduler.add_job(
             send_morning_summary,

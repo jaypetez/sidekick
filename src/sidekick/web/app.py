@@ -18,7 +18,15 @@ from aiohttp import web
 
 from ..calendar.chronary import ChronaryProvider
 from ..storage.sqlite_tasks import SQLiteTaskStore
-from .handlers import calendar_routes, dashboard, health, reminders, settings, tasks
+from .handlers import (
+    calendar_routes,
+    chat,
+    dashboard,
+    health,
+    reminders,
+    settings,
+    tasks,
+)
 
 
 def make_app(
@@ -43,13 +51,21 @@ def make_app(
     app["calendar"] = calendar_provider
 
     templates_dir = Path(__file__).parent / "templates"
-    aiohttp_jinja2.setup(app, loader=jinja2.FileSystemLoader(str(templates_dir)))
+    aiohttp_jinja2.setup(
+        app,
+        loader=jinja2.FileSystemLoader(str(templates_dir)),
+        context_processors=[aiohttp_jinja2.request_processor],
+    )
 
     static_dir = Path(__file__).parent / "static"
     app.router.add_static("/static/", path=static_dir, name="static")
 
     app.router.add_get("/", dashboard.home, name="home")
     app.router.add_get("/health", health.health, name="health")
+
+    app.router.add_get("/chat", chat.index, name="chat.index")
+    app.router.add_post("/chat", chat.send, name="chat.send")
+    app.router.add_post("/chat/reset", chat.reset, name="chat.reset")
 
     app.router.add_get("/reminders", reminders.index, name="reminders.index")
     app.router.add_post("/reminders", reminders.create, name="reminders.create")

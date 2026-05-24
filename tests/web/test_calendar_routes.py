@@ -138,3 +138,37 @@ async def test_index_503s_without_provider(aiohttp_client, bot_data):
     c = await aiohttp_client(app)
     resp = await c.get("/events")
     assert resp.status == 503
+
+
+@pytest.mark.asyncio
+async def test_index_renders_error_banner_when_provider_fails(cal_client, calendar_provider):
+    """A live but-erroring provider shouldn't 500 — show the user what went wrong."""
+    calendar_provider.list_events.side_effect = RuntimeError("Chronary 401")
+    resp = await cal_client.get("/events")
+    assert resp.status == 200
+    body = await resp.text()
+    assert "Chronary 401" in body
+    # Body should still render the page chrome (no traceback page).
+    assert "Calendar" in body
+
+
+@pytest.mark.asyncio
+async def test_create_502s_when_provider_fails(cal_client, calendar_provider):
+    calendar_provider.create_event.side_effect = RuntimeError("Chronary 500")
+    resp = await cal_client.post(
+        "/events",
+        data={
+            "summary": "x",
+            "start_datetime": "2026-05-25T09:00:00-05:00",
+            "end_datetime": "2026-05-25T09:30:00-05:00",
+        },
+        allow_redirects=False,
+    )
+    assert resp.status == 502
+
+
+@pytest.mark.asyncio
+async def test_delete_502s_when_provider_fails(cal_client, calendar_provider):
+    calendar_provider.delete_event.side_effect = RuntimeError("nope")
+    resp = await cal_client.post("/events/evt_1/delete", allow_redirects=False)
+    assert resp.status == 502
