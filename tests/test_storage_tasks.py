@@ -1,6 +1,8 @@
 """Tests for SQLiteTaskStore using an in-memory database."""
 
+import asyncio
 import sqlite3
+import threading
 
 import pytest
 
@@ -11,6 +13,50 @@ from sidekick.storage.sqlite_tasks import SQLiteTaskStore
 def store():
     conn = sqlite3.connect(":memory:")
     return SQLiteTaskStore(conn=conn)
+
+
+@pytest.fixture
+def file_store(tmp_path):
+    """A file-backed store, like production. Exercises the _connect path."""
+    db_path = tmp_path / "test.db"
+    return SQLiteTaskStore(db_path=str(db_path))
+
+
+def test_file_backed_store_works_across_threads(file_store):
+    """The web layer constructs the store on the asyncio loop thread but
+    every call hops to a ThreadPoolExecutor worker. Without
+    ``check_same_thread=False`` in _connect, sqlite3 raises
+    ProgrammingError on the first cross-thread call.
+    """
+    file_store.add_tasks({"list_name": "Costco", "items": ["milk"]})
+
+    result: dict = {}
+
+    def worker() -> None:
+        try:
+            result["lists"] = file_store.list_task_lists({})
+            result["items"] = file_store.list_tasks({"list_name": "Costco"})
+        except Exception as exc:
+            result["error"] = exc
+
+    t = threading.Thread(target=worker)
+    t.start()
+    t.join(timeout=5)
+    assert "error" not in result, f"Cross-thread call raised: {result.get('error')}"
+    assert [r["title"] for r in result["lists"]] == ["Costco"]
+    assert [r["title"] for r in result["items"]] == ["milk"]
+
+
+def test_file_backed_store_works_from_executor(file_store):
+    """End-to-end: mirror the exact flow the web layer uses (loop.run_in_executor)."""
+
+    async def runner() -> list:
+        loop = asyncio.get_running_loop()
+        file_store.add_tasks({"list_name": "Home", "items": ["paint"]})
+        return await loop.run_in_executor(None, file_store.list_task_lists, {})
+
+    lists = asyncio.run(runner())
+    assert any(row["title"] == "Home" for row in lists)
 
 
 # -------------------------------------------------------------------

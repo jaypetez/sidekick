@@ -198,3 +198,24 @@ async def test_chat_passes_translated_messages_and_tools():
     # Tool converted to OpenAI shape.
     assert args.kwargs["tools"][0]["type"] == "function"
     assert args.kwargs["tools"][0]["function"]["name"] == "noop"
+
+
+@pytest.mark.asyncio
+async def test_chat_wraps_connection_error_in_runtime_error():
+    """A network failure to ollama should surface as a clear RuntimeError
+    that the agent's existing exception handler can show to the user."""
+    fake_client = SimpleNamespace(chat=AsyncMock(side_effect=ConnectionRefusedError("nope")))
+    llm = OllamaClient(model="qwen2.5:14b", client=fake_client, base_url="http://ollama:11434")
+
+    with pytest.raises(RuntimeError, match="Ollama call failed"):
+        await llm.chat(system="x", messages=[], tools=[])
+
+
+@pytest.mark.asyncio
+async def test_chat_wraps_timeout_in_runtime_error():
+    """TimeoutError must be re-raised as a clearer RuntimeError."""
+    fake_client = SimpleNamespace(chat=AsyncMock(side_effect=TimeoutError()))
+    llm = OllamaClient(model="qwen2.5:14b", client=fake_client)
+
+    with pytest.raises(RuntimeError, match="Ollama request timed out"):
+        await llm.chat(system="x", messages=[], tools=[])

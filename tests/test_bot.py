@@ -139,10 +139,25 @@ async def test_handle_message_replies_apology_on_agent_failure():
     assert "something went wrong" in body.lower()
 
 
-def test_main_raises_without_telegram_token(monkeypatch):
+def test_main_runs_web_only_when_token_blank(monkeypatch):
+    """Blank/missing TELEGRAM_BOT_TOKEN → asyncio.run(_run_web_only()), not a ValueError."""
     monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
-    with pytest.raises(ValueError, match="TELEGRAM_BOT_TOKEN"):
+    with (
+        patch("sidekick.bot.asyncio.run") as fake_run,
+        patch("sidekick.bot._run_web_only") as fake_web_only,
+    ):
+        fake_web_only.return_value = MagicMock()  # coroutine-like sentinel
         bot_module.main()
+    fake_run.assert_called_once()
+    fake_web_only.assert_called_once()
+
+
+def test_main_runs_web_only_when_token_whitespace(monkeypatch):
+    """Whitespace-only token is treated as unset."""
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "   ")
+    with patch("sidekick.bot.asyncio.run") as fake_run, patch("sidekick.bot._run_web_only"):
+        bot_module.main()
+    fake_run.assert_called_once()
 
 
 def test_main_builds_application_and_starts_polling(monkeypatch):
@@ -188,3 +203,134 @@ async def test_post_shutdown_stops_scheduler_and_signals_mcp(monkeypatch):
 
     scheduler.shutdown.assert_called_once_with(wait=False)
     shutdown_event.set.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# Bootstrap + web-only mode
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_bootstrap_services_wires_components(monkeypatch):
+    """_bootstrap_services should set scheduler, agent, mcp_task, web_task in bot_data."""
+    bot_data: dict = {}
+
+    # Stub _run_mcp_subprocess: pretend the MCP session arrives instantly.
+    async def fake_mcp(params, session_ready, shutdown_event, data):
+        data["mcp_session"] = MagicMock()
+        session_ready.set()
+        await shutdown_event.wait()
+
+    monkeypatch.setattr("sidekick.bot._run_mcp_subprocess", fake_mcp)
+
+    fake_scheduler = MagicMock()
+    monkeypatch.setattr("sidekick.bot.setup_scheduler", MagicMock(return_value=fake_scheduler))
+    monkeypatch.setattr("sidekick.bot.load_custom_reminders", MagicMock())
+
+    fake_agent = MagicMock()
+    fake_agent.load_tools = AsyncMock()
+    fake_agent.tools = []
+    monkeypatch.setattr("sidekick.bot.SidekickAgent", MagicMock(return_value=fake_agent))
+
+    # Web task: replace with a fast no-op so the bootstrap doesn't hang the test.
+    async def fake_web(data):
+        return None
+
+    monkeypatch.setattr("sidekick.bot._run_web", fake_web)
+    # Make sure slack stays off.
+    monkeypatch.delenv("SLACK_BOT_TOKEN", raising=False)
+    monkeypatch.delenv("SLACK_APP_TOKEN", raising=False)
+
+    await bot_module._bootstrap_services(bot_data, bot=None)
+
+    assert bot_data["scheduler"] is fake_scheduler
+    assert bot_data["agent"] is fake_agent
+    assert "mcp_task" in bot_data
+    assert "web_task" in bot_data
+
+
+@pytest.mark.asyncio
+async def test_bootstrap_services_forces_web_on_in_web_only_mode(monkeypatch):
+    """When bot=None and SIDEKICK_WEB_ENABLED=false, web is forced on anyway."""
+    bot_data: dict = {}
+
+    async def fake_mcp(params, session_ready, shutdown_event, data):
+        data["mcp_session"] = MagicMock()
+        session_ready.set()
+        await shutdown_event.wait()
+
+    monkeypatch.setattr("sidekick.bot._run_mcp_subprocess", fake_mcp)
+    monkeypatch.setattr("sidekick.bot.setup_scheduler", MagicMock(return_value=MagicMock()))
+    monkeypatch.setattr("sidekick.bot.load_custom_reminders", MagicMock())
+
+    fake_agent = MagicMock()
+    fake_agent.load_tools = AsyncMock()
+    fake_agent.tools = []
+    monkeypatch.setattr("sidekick.bot.SidekickAgent", MagicMock(return_value=fake_agent))
+
+    async def fake_web(data):
+        return None
+
+    monkeypatch.setattr("sidekick.bot._run_web", fake_web)
+    monkeypatch.setenv("SIDEKICK_WEB_ENABLED", "false")
+    monkeypatch.delenv("SLACK_BOT_TOKEN", raising=False)
+    monkeypatch.delenv("SLACK_APP_TOKEN", raising=False)
+
+    await bot_module._bootstrap_services(bot_data, bot=None)
+
+    # Web is critical in web-only mode — must be forced on even with env=false.
+    assert "web_task" in bot_data
+
+
+@pytest.mark.asyncio
+async def test_bootstrap_services_surfaces_mcp_startup_failure(monkeypatch):
+    """If the MCP subprocess crashes before signaling readiness, the bootstrap
+    must raise a RuntimeError that names the original failure rather than
+    hanging on session_ready.wait()."""
+    bot_data: dict = {}
+
+    async def fake_mcp(params, session_ready, shutdown_event, data):
+        raise RuntimeError("mcp died on import")
+
+    monkeypatch.setattr("sidekick.bot._run_mcp_subprocess", fake_mcp)
+
+    with pytest.raises(RuntimeError, match="MCP subprocess failed to start"):
+        await bot_module._bootstrap_services(bot_data, bot=None)
+
+
+@pytest.mark.asyncio
+async def test_bootstrap_services_spawns_mcp_via_module_flag(monkeypatch):
+    """MCP subprocess must be spawned via ``-m sidekick.mcp_server``, not by
+    passing the script path directly. Otherwise Python prepends
+    ``src/sidekick/`` to sys.path and ``sidekick/calendar/`` shadows the
+    stdlib ``calendar`` module — breaking httpx's cookiejar import.
+    """
+    captured_params = {}
+    bot_data: dict = {}
+
+    async def fake_mcp(params, session_ready, shutdown_event, data):
+        captured_params["params"] = params
+        data["mcp_session"] = MagicMock()
+        session_ready.set()
+        await shutdown_event.wait()
+
+    monkeypatch.setattr("sidekick.bot._run_mcp_subprocess", fake_mcp)
+    monkeypatch.setattr("sidekick.bot.setup_scheduler", MagicMock(return_value=MagicMock()))
+    monkeypatch.setattr("sidekick.bot.load_custom_reminders", MagicMock())
+    fake_agent = MagicMock()
+    fake_agent.load_tools = AsyncMock()
+    fake_agent.tools = []
+    monkeypatch.setattr("sidekick.bot.SidekickAgent", MagicMock(return_value=fake_agent))
+
+    async def fake_web(data):
+        return None
+
+    monkeypatch.setattr("sidekick.bot._run_web", fake_web)
+    monkeypatch.delenv("SLACK_BOT_TOKEN", raising=False)
+    monkeypatch.delenv("SLACK_APP_TOKEN", raising=False)
+
+    await bot_module._bootstrap_services(bot_data, bot=None)
+
+    params = captured_params["params"]
+    # The args must invoke the MCP server as a module, not as a script.
+    assert params.args[:2] == ["-m", "sidekick.mcp_server"]

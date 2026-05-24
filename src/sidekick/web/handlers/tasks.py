@@ -8,12 +8,15 @@ reads with one writer (the MCP subprocess) work fine.
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 import aiohttp_jinja2
 from aiohttp import web
 
 from ..helpers import run_sync
+
+logger = logging.getLogger(__name__)
 
 
 def _store(request: web.Request) -> Any:
@@ -50,7 +53,11 @@ async def add_item(request: web.Request) -> web.Response:
     title = str(form.get("title", "")).strip()
     if not title:
         raise web.HTTPBadRequest(reason="title is required")
-    await run_sync(store.add_tasks, {"list_name": list_name, "items": [title]})
+    try:
+        await run_sync(store.add_tasks, {"list_name": list_name, "items": [title]})
+    except Exception as exc:
+        logger.exception("add_tasks failed for list %s", list_name)
+        raise web.HTTPBadGateway(reason=f"task store error: {exc}") from exc
     raise web.HTTPSeeOther(location=f"/tasks/{list_name}")
 
 
@@ -77,7 +84,11 @@ async def delete_item(request: web.Request) -> web.Response:
 async def clear_completed(request: web.Request) -> web.Response:
     store = _store(request)
     list_name = request.match_info["list_name"]
-    await run_sync(store.clear_completed, {"list_name": list_name})
+    try:
+        await run_sync(store.clear_completed, {"list_name": list_name})
+    except Exception as exc:
+        logger.exception("clear_completed failed for list %s", list_name)
+        raise web.HTTPBadGateway(reason=f"task store error: {exc}") from exc
     raise web.HTTPSeeOther(location=f"/tasks/{list_name}")
 
 

@@ -21,12 +21,15 @@ regardless of model.
 """
 
 import json
+import logging
 import os
 import uuid
 from types import SimpleNamespace
 from typing import Any
 
 from .base import LLMClient
+
+logger = logging.getLogger(__name__)
 
 
 class OllamaClient(LLMClient):
@@ -55,12 +58,25 @@ class OllamaClient(LLMClient):
         oll_messages.extend(_messages_anthropic_to_ollama(messages))
         oll_tools = [_tool_anthropic_to_ollama(t) for t in tools]
 
-        response = await client.chat(
-            model=self.model,
-            messages=oll_messages,
-            tools=oll_tools or None,
-            options={"num_predict": max_tokens},
-        )
+        try:
+            response = await client.chat(
+                model=self.model,
+                messages=oll_messages,
+                tools=oll_tools or None,
+                options={"num_predict": max_tokens},
+            )
+        except TimeoutError as exc:
+            raise RuntimeError(
+                f"Ollama request timed out talking to {self._base_url} "
+                f"(model {self.model}). Is the server reachable and the model pulled?"
+            ) from exc
+        except Exception as exc:
+            # ollama.ResponseError, httpx.ConnectError, etc. — Ollama's exception
+            # hierarchy isn't part of our public surface, so catch broadly and
+            # re-raise with a clear message the agent layer can surface to the user.
+            raise RuntimeError(
+                f"Ollama call failed against {self._base_url} (model {self.model}): {exc}"
+            ) from exc
 
         return _response_ollama_to_anthropic(response)
 

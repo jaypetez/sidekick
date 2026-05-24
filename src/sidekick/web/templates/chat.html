@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+{% block title %}Chat{% endblock %}
+{% block content %}
+<h1>Chat</h1>
+<p class="muted">Talk to Sidekick the same way you would on Telegram. History persists until you reset.</p>
+
+<div id="messages" class="chat-window">
+  {% if not messages %}
+    <div class="chat-empty">No messages yet. Ask me what's on the calendar, or to add an item to a list.</div>
+  {% endif %}
+  {% for pair in messages %}
+    {% include "partials/chat_message.html" %}
+  {% endfor %}
+</div>
+
+<form class="chat-form" hx-post="/chat" hx-target="#messages" hx-swap="beforeend"
+      hx-on::after-request="this.reset(); document.getElementById('messages').scrollTop = document.getElementById('messages').scrollHeight"
+      method="post" action="/chat">
+  <input name="message" placeholder="Type a message..." autocomplete="off" required autofocus>
+  <button type="submit">Send</button>
+</form>
+
+<form method="post" action="/chat/reset" style="margin-top:12px">
+  <button type="submit" class="secondary">Clear conversation</button>
+</form>
+
+<script>
+  // Scroll history to bottom on initial load.
+  (function(){
+    var el = document.getElementById('messages');
+    if (el) el.scrollTop = el.scrollHeight;
+  })();
+</script>
+{% endblock %}

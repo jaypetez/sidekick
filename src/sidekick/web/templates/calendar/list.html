@@ -3,6 +3,10 @@
 {% block content %}
 <h1>Calendar — next {{ days }} days</h1>
 
+{% if error %}
+<p class="error-banner">Couldn't reach the calendar provider: {{ error }}. Check <code>CHRONARY_*</code> env vars.</p>
+{% endif %}
+
 <form method="get" action="/events" style="margin-bottom:16px">
   <label>Window (days): <input name="days" type="number" min="1" max="90" value="{{ days }}"></label>
   <button type="submit" class="secondary">Refresh</button>

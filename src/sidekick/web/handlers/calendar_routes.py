@@ -10,6 +10,7 @@ the stdlib ``calendar`` module.
 
 from __future__ import annotations
 
+import logging
 from datetime import date, timedelta
 from typing import Any
 
@@ -17,6 +18,8 @@ import aiohttp_jinja2
 from aiohttp import web
 
 from ..helpers import run_sync
+
+logger = logging.getLogger(__name__)
 
 
 def _provider(request: web.Request) -> Any:
@@ -38,11 +41,15 @@ async def index(request: web.Request) -> dict[str, Any]:
 
     start = date.today()
     end = start + timedelta(days=days)
-    events = await run_sync(
-        provider.list_events,
-        {"start_date": start.isoformat(), "end_date": end.isoformat(), "max_results": 50},
-    )
-    return {"events": events, "days": days}
+    try:
+        events = await run_sync(
+            provider.list_events,
+            {"start_date": start.isoformat(), "end_date": end.isoformat(), "max_results": 50},
+        )
+    except Exception as exc:
+        logger.exception("list_events failed")
+        return {"events": [], "days": days, "error": str(exc)}
+    return {"events": events, "days": days, "error": None}
 
 
 async def create(request: web.Request) -> web.Response:
@@ -66,7 +73,11 @@ async def create(request: web.Request) -> web.Response:
     if location:
         args["location"] = location
 
-    await run_sync(provider.create_event, args)
+    try:
+        await run_sync(provider.create_event, args)
+    except Exception as exc:
+        logger.exception("create_event failed")
+        raise web.HTTPBadGateway(reason=f"calendar provider error: {exc}") from exc
     raise web.HTTPSeeOther(location="/events")
 
 
@@ -84,12 +95,20 @@ async def update(request: web.Request) -> web.Response:
     if len(args) == 1:  # only event_id — nothing to update
         raise web.HTTPBadRequest(reason="at least one field must be provided")
 
-    await run_sync(provider.update_event, args)
+    try:
+        await run_sync(provider.update_event, args)
+    except Exception as exc:
+        logger.exception("update_event failed for id %s", event_id)
+        raise web.HTTPBadGateway(reason=f"calendar provider error: {exc}") from exc
     raise web.HTTPSeeOther(location="/events")
 
 
 async def delete(request: web.Request) -> web.Response:
     provider = _provider(request)
     event_id = request.match_info["id"]
-    await run_sync(provider.delete_event, {"event_id": event_id})
+    try:
+        await run_sync(provider.delete_event, {"event_id": event_id})
+    except Exception as exc:
+        logger.exception("delete_event failed for id %s", event_id)
+        raise web.HTTPBadGateway(reason=f"calendar provider error: {exc}") from exc
     raise web.HTTPSeeOther(location="/events")

@@ -121,3 +121,20 @@ async def test_delete_list_404s_when_missing(tasks_client, task_store):
     task_store.delete_task_list.return_value = {"error": "Task list 'X' not found"}
     resp = await tasks_client.post("/tasks/X/delete", allow_redirects=False)
     assert resp.status == 404
+
+
+@pytest.mark.asyncio
+async def test_add_item_502s_when_store_raises(tasks_client, task_store):
+    """A SQLite-level failure should surface as 502, not crash to 500."""
+    task_store.add_tasks.side_effect = RuntimeError("db locked")
+    resp = await tasks_client.post(
+        "/tasks/Costco/items", data={"title": "eggs"}, allow_redirects=False
+    )
+    assert resp.status == 502
+
+
+@pytest.mark.asyncio
+async def test_clear_completed_502s_when_store_raises(tasks_client, task_store):
+    task_store.clear_completed.side_effect = RuntimeError("db locked")
+    resp = await tasks_client.post("/tasks/Costco/clear-completed", allow_redirects=False)
+    assert resp.status == 502

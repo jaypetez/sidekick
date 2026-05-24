@@ -7,15 +7,20 @@
   <link rel="stylesheet" href="/static/style.css">
   <script src="https://unpkg.com/htmx.org@2.0.3" defer></script>
 </head>
+{% set current = request.path if request else '/' %}
+{% macro nav_link(href, label) -%}
+  <a href="{{ href }}" {% if current == href or (href != '/' and current.startswith(href)) %}class="active"{% endif %}>{{ label }}</a>
+{%- endmacro %}
 <body>
   <header class="topbar">
     <a class="brand" href="/">Sidekick</a>
     <nav>
-      <a href="/">Dashboard</a>
-      <a href="/reminders">Reminders</a>
-      <a href="/tasks">Tasks</a>
-      <a href="/events">Calendar</a>
-      <a href="/settings">Settings</a>
+      {{ nav_link('/', 'Dashboard') }}
+      {{ nav_link('/chat', 'Chat') }}
+      {{ nav_link('/reminders', 'Reminders') }}
+      {{ nav_link('/tasks', 'Tasks') }}
+      {{ nav_link('/events', 'Calendar') }}
+      {{ nav_link('/settings', 'Settings') }}
     </nav>
   </header>
   <main>

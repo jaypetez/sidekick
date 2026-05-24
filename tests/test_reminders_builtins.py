@@ -54,6 +54,19 @@ def test_setup_scheduler_pre_event_minutes_zero_disables_check(monkeypatch):
     assert job_ids == {"morning_summary"}
 
 
+def test_setup_scheduler_skips_builtins_when_bot_is_none(monkeypatch):
+    """Web-only mode: no Telegram Bot → built-in delivery jobs cannot run, so skip them."""
+    monkeypatch.setenv("REMINDER_CHAT_ID", "-100123")  # would normally enable jobs
+    monkeypatch.setenv("PRE_EVENT_REMINDER_MINUTES", "30")
+    fake_scheduler = MagicMock()
+    with patch("sidekick.reminders.AsyncIOScheduler", return_value=fake_scheduler):
+        result = reminders.setup_scheduler(None, MagicMock())
+
+    fake_scheduler.add_job.assert_not_called()
+    fake_scheduler.start.assert_called_once()
+    assert result is fake_scheduler
+
+
 # -------------------------------------------------------------------
 # _events_from_tool_result helper
 # -------------------------------------------------------------------

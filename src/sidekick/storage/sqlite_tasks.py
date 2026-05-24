@@ -51,9 +51,16 @@ def _default_db_path() -> str:
 
 
 def _connect(db_path: str) -> sqlite3.Connection:
-    """Open a connection with foreign keys + WAL enabled."""
+    """Open a connection with foreign keys + WAL enabled.
+
+    ``check_same_thread=False`` is required because the web layer constructs
+    the store on the asyncio loop thread but dispatches every call through
+    ``loop.run_in_executor``, which hands off to worker threads. Python's
+    bundled SQLite is built with SQLITE_THREADSAFE=1, which serializes
+    access at the C level, so this is safe under WAL.
+    """
     Path(db_path).parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(db_path)
+    conn = sqlite3.connect(db_path, check_same_thread=False)
     conn.row_factory = sqlite3.Row
     conn.executescript(SCHEMA)
     return conn

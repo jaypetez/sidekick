@@ -4,11 +4,11 @@
 
 <p align="center">
   <strong>The AI assistant you text like a friend.</strong><br>
-  Calendar, lists, and reminders — on Telegram or Slack, powered by Claude or a local LLM. Self-hosted.
+  Calendar, lists, and reminders — in your browser, on Telegram, or on Slack. Powered by Claude or a local LLM. Self-hosted.
 </p>
 
 <p align="center">
-  <a href="#quickstart"><img src="https://img.shields.io/badge/Quickstart-5b21b6?style=for-the-badge&logo=docker&logoColor=white" alt="Quickstart"></a>
+  <a href="examples/01-local-ollama-docker/"><img src="https://img.shields.io/badge/Try%20it%20locally-5b21b6?style=for-the-badge&logo=docker&logoColor=white" alt="Try it locally"></a>
   <a href="FEATURES.md"><img src="https://img.shields.io/badge/Features-db2777?style=for-the-badge" alt="Features"></a>
   <a href=".github/CONTRIBUTING.md"><img src="https://img.shields.io/badge/Contributing-0891b2?style=for-the-badge" alt="Contributing"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-16a34a?style=for-the-badge" alt="MIT License"></a>
@@ -19,14 +19,51 @@
   <img src="https://img.shields.io/badge/tests-87%20passing-22c55e" alt="87 tests">
   <img src="https://img.shields.io/badge/calendar-Chronary.ai-8b5cf6" alt="Chronary">
   <img src="https://img.shields.io/badge/LLM-Claude%20%7C%20Ollama-f59e0b" alt="LLM">
-  <img src="https://img.shields.io/badge/chat-Telegram%20%7C%20Slack-0ea5e9" alt="Chat">
+  <img src="https://img.shields.io/badge/chat-Web%20%7C%20Telegram%20%7C%20Slack-0ea5e9" alt="Chat">
 </p>
+
+---
+
+## Try it locally in 5 minutes
+
+The fastest way to see Sidekick is **without** Telegram or an Anthropic key. Run everything in Docker, with a local LLM on your machine, and chat with it in your browser:
+
+```bash
+cp examples/01-local-ollama-docker/.env.example .env   # then paste your Chronary key
+docker compose run --rm sidekick sidekick-init         # one-time Chronary bootstrap
+docker compose --profile ollama up -d
+docker compose exec ollama ollama pull qwen2.5:14b
+# open http://localhost:8080/chat
+```
+
+Full walkthrough — including GPU passthrough, smaller-model alternatives, and what to try first — in [**examples/01-local-ollama-docker/**](examples/01-local-ollama-docker/).
+
+---
+
+## Screenshots
+
+<p align="center">
+  <img src="docs/screenshots/chat.png" alt="Web chat UI" width="720"><br>
+  <em>The in-browser chat — same agent, no Telegram needed.</em>
+</p>
+
+<p align="center">
+  <img src="docs/screenshots/dashboard.png" alt="Admin dashboard" width="720"><br>
+  <em>Dashboard health tiles and personality at a glance.</em>
+</p>
+
+<p align="center">
+  <img src="docs/screenshots/tasks.png" alt="Tasks page" width="720"><br>
+  <em>Tasks are shared state — the agent and the dashboard read/write the same SQLite db.</em>
+</p>
+
+> Capturing the screenshots above: start the stack (e.g. via [examples/01](examples/01-local-ollama-docker/)), then `pip install playwright && playwright install chromium && python scripts/capture_screenshots.py` against the running app.
 
 ---
 
 ## What it's like to use
 
-Sidekick lives in your chat. Talk to it the way you'd ping a roommate — no slash commands required, no special grammar.
+Sidekick lives wherever you want to chat with it — the web UI, Telegram, or Slack. Talk to it the way you'd ping a roommate — no slash commands required, no special grammar.
 
 ```text
 you   add milk, eggs, and tortillas to costco
@@ -106,13 +143,16 @@ Every backend sits behind an abstract base class (`CalendarProvider`, `TaskStore
 
 ## Quickstart
 
+> Want the fully-local "no Telegram, no Anthropic key" path? Use the [Try it locally in 5 minutes](#try-it-locally-in-5-minutes) box above (or [examples/01-local-ollama-docker/](examples/01-local-ollama-docker/) for the full walkthrough). The Quickstart below is for the production path with Telegram + Anthropic.
+
 ### Option A — Docker (recommended)
 
 ```bash
 git clone https://github.com/jaypetez/sidekick.git
 cd sidekick
 cp .env.example .env
-# Fill in TELEGRAM_BOT_TOKEN, ANTHROPIC_API_KEY, CHRONARY_API_KEY
+# Fill in TELEGRAM_BOT_TOKEN (or leave blank for web-only mode),
+# ANTHROPIC_API_KEY, CHRONARY_API_KEY
 
 # One-time Chronary bootstrap — creates an agent + default calendar:
 docker compose run --rm sidekick sidekick-init
@@ -125,9 +165,9 @@ docker compose logs -f sidekick
 To run with a **local LLM** instead of Anthropic:
 
 ```bash
-# In .env: LLM_PROVIDER=ollama, OLLAMA_BASE_URL=http://ollama:11434, OLLAMA_MODEL=llama3.1:8b
+# In .env: LLM_PROVIDER=ollama, OLLAMA_BASE_URL=http://ollama:11434, OLLAMA_MODEL=qwen2.5:14b
 docker compose --profile ollama up -d
-docker exec sidekick-ollama ollama pull llama3.1:8b
+docker compose exec ollama ollama pull qwen2.5:14b
 ```
 
 ### Option B — bare metal (Python 3.11+)
@@ -149,7 +189,7 @@ sidekick           # starts the bot
 
 | Variable | Required when | Where to get it |
 |---|---|---|
-| `TELEGRAM_BOT_TOKEN` | always | [@BotFather](https://t.me/BotFather) → `/newbot` |
+| `TELEGRAM_BOT_TOKEN` | only when you want Telegram (leave blank for web-only mode) | [@BotFather](https://t.me/BotFather) → `/newbot` |
 | `LLM_PROVIDER` | optional, default `anthropic` | `anthropic` \| `ollama` |
 | `ANTHROPIC_API_KEY` | `LLM_PROVIDER=anthropic` | [console.anthropic.com](https://console.anthropic.com) |
 | `OLLAMA_BASE_URL`, `OLLAMA_MODEL` | `LLM_PROVIDER=ollama` | local install (or compose `ollama` service) |
@@ -168,8 +208,10 @@ Full reference: [`.env.example`](.env.example).
 
 ## Admin dashboard
 
-Sidekick ships an in-process web UI at **http://127.0.0.1:8080** for the operator. It runs alongside the Telegram/Slack adapters on the same event loop and surfaces:
+Sidekick ships an in-process web UI at **http://127.0.0.1:8080** for the operator. It runs alongside the Telegram/Slack adapters on the same event loop — and when no Telegram token is set, it stands alone as the only chat surface. The pages:
 
+- **Chat** — converse with the agent right in the browser; uses the same `SidekickAgent` as Telegram/Slack
+- **Dashboard** — at-a-glance health tiles (scheduler, MCP, reminder count, tool count) + active personality
 - **Reminders** — create, pause, resume, or delete; built-in jobs (morning summary, pre-event check) can be paused but not removed
 - **Tasks** — browse every list, add/complete/delete items, clear completed, drop a whole list
 - **Calendar** — view upcoming events in a configurable window, create / edit / delete events
@@ -204,8 +246,11 @@ Set `LLM_PROVIDER=ollama` to route the bot through a local Ollama server instead
 
 **Recommended tool-capable models:**
 
-- `llama3.1:8b` — best general balance, ~5GB
-- `qwen2.5:7b` — slightly better at multi-tool plans, ~5GB
+| Model | VRAM (Q4) | Notes |
+|---|---|---|
+| `qwen2.5:14b` | ~9GB | **Best tool-use we tested at ≤16GB VRAM.** Default in [examples/01](examples/01-local-ollama-docker/). |
+| `qwen2.5:7b` | ~5GB | Smaller GPUs or CPU-only. Slightly better at function-calling than llama3.1:8b. |
+| `llama3.1:8b` | ~5GB | Project's historical baseline. Solid general balance. |
 
 > ⚠️ Tool-use reliability on any local model is **materially lower** than Claude's. For day-to-day production, keep Anthropic. Ollama is for offline / cost-free / privacy-sensitive operation where the occasional missed tool call is acceptable.
 

@@ -1,0 +1,10 @@
+{% if pair.user %}
+<div class="chat-msg chat-msg-user">
+  <div class="chat-bubble">{{ pair.user }}</div>
+</div>
+{% endif %}
+{% if pair.assistant %}
+<div class="chat-msg chat-msg-assistant">
+  <div class="chat-bubble">{{ pair.assistant }}</div>
+</div>
+{% endif %}
