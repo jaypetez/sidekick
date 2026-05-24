@@ -19,6 +19,8 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from mcp import ClientSession
 from telegram import Bot
 
+from .llm import LLMClient
+from .llm.anthropic import AnthropicClient
 from .reminders import (
     add_reminder,
     get_all_reminders,
@@ -170,10 +172,10 @@ class FamilyAgent:
         scheduler: AsyncIOScheduler | None = None,
         bot: Bot | None = None,
         reminder_chat_id: int | None = None,
+        llm: LLMClient | None = None,
     ):
         self.session = mcp_session
-        self.client = anthropic.AsyncAnthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
-        self.model = os.getenv("CLAUDE_MODEL", "claude-haiku-4-5-20251001")
+        self.llm: LLMClient = llm or AnthropicClient()
         self.timezone = os.getenv("TIMEZONE", "America/Chicago")
         self.conversation_history: dict[int, list[dict]] = {}
         self.tools: list[dict] = []
@@ -261,12 +263,11 @@ class FamilyAgent:
         )
 
         while True:
-            response = await self.client.messages.create(
-                model=self.model,
-                max_tokens=1024,
+            response = await self.llm.chat(
                 system=system,
                 messages=history,
                 tools=self.tools,
+                max_tokens=1024,
             )
 
             if response.stop_reason == "end_turn":
