@@ -18,6 +18,7 @@ from typing import Any
 import aiohttp_jinja2
 from aiohttp import web
 
+from ...ratelimit import get_default_limiter
 from ..helpers import run_sync
 
 logger = logging.getLogger(__name__)
@@ -84,8 +85,38 @@ async def index(request: web.Request) -> dict[str, Any]:
     return {"messages": _history_pairs(agent), "chat_id": CHAT_ID}
 
 
+def _rate_limit_key(request: web.Request) -> str:
+    """Derive a per-caller key for rate limiting.
+
+    Preference order: an explicit ``X-Forwarded-For`` (when the dashboard
+    sits behind a reverse proxy), the peer remote address, the aiohttp
+    session id if any, finally the literal string ``web``. This matches
+    the spec's "session id or XFF if present, else 'web'" guidance while
+    being robust to missing peer info.
+    """
+    xff = request.headers.get("X-Forwarded-For")
+    if xff:
+        return f"xff:{xff.split(',')[0].strip()}"
+    remote = request.remote
+    if remote:
+        return f"ip:{remote}"
+    return "web"
+
+
 async def send(request: web.Request) -> web.Response:
     agent = _agent(request)
+
+    limiter = get_default_limiter()
+    if not await limiter.acquire(("web", _rate_limit_key(request))):
+        logger.warning("web_chat_rate_limited key=%s", _rate_limit_key(request))
+        return web.json_response(
+            {
+                "error": "rate_limited",
+                "message": "You're sending messages too quickly — please slow down and try again.",
+            },
+            status=429,
+        )
+
     form = await request.post()
     text = str(form.get("message", "")).strip()
     if not text:

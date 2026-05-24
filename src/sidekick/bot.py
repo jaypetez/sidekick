@@ -71,6 +71,7 @@ def _deny(update: Update, *, reason: str) -> None:
         getattr(chat, "id", None),
     )
 
+
 # python-telegram-bot's Application is generic over (bot, context, user_data,
 # chat_data, bot_data, job_queue). We don't customize any of them — alias to Any
 # everywhere so we don't have to repeat the full parameter list per usage.

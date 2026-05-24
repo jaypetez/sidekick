@@ -150,9 +150,7 @@ class SlackPlatform(ChatPlatform):
             # Per-user rate limit.
             limiter = get_default_limiter()
             if not await limiter.acquire(("sl", user)):
-                logger.warning(
-                    "slack_rate_limited user_id=%s channel=%s", user, channel
-                )
+                logger.warning("slack_rate_limited user_id=%s channel=%s", user, channel)
                 await say(
                     text="You're sending messages too quickly — please slow down and try again.",
                     mrkdwn=False,
