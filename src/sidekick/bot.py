@@ -33,6 +33,7 @@ from telegram.ext import (
 load_dotenv()
 
 from .agent import PERSONALITY_PRESETS, FamilyAgent
+from .platforms.base import IncomingMessage
 from .reminders import load_custom_reminders, setup_scheduler
 
 logging.basicConfig(
@@ -188,7 +189,54 @@ async def post_init(application: Application) -> None:
     # processed through the agent so Claude can call tools when they fire
     load_custom_reminders(scheduler, agent)
 
+    # Optional: also run a Slack adapter alongside Telegram if configured.
+    if os.getenv("SLACK_BOT_TOKEN") and os.getenv("SLACK_APP_TOKEN"):
+        slack_task = asyncio.create_task(_run_slack(application, agent))
+        application.bot_data["slack_task"] = slack_task
+        logger.info("Slack adapter enabled")
+
     logger.info("Sidekick is ready!")
+
+
+async def _run_slack(application: Application, agent: FamilyAgent) -> None:
+    """Spin up the Slack platform and route messages through the same agent."""
+    from .platforms.slack import SlackPlatform
+
+    platform = SlackPlatform()
+    application.bot_data["slack_platform"] = platform
+
+    async def slack_default(msg: IncomingMessage) -> str | None:
+        try:
+            return await agent.process_message(msg.chat_id, msg.text)
+        except Exception:
+            logger.exception("Slack agent error for chat %s", msg.chat_id)
+            return "Sorry, something went wrong. Please try again."
+
+    async def slack_reset(msg: IncomingMessage, args: list[str]) -> str:
+        agent.clear_history(msg.chat_id)
+        return "Conversation history cleared!"
+
+    async def slack_get_id(msg: IncomingMessage, args: list[str]) -> str:
+        return f"This chat's ID is: `{msg.chat_id}`"
+
+    async def slack_personality(msg: IncomingMessage, args: list[str]) -> str:
+        if not args:
+            current = agent.personality or "default (friendly assistant)"
+            presets = ", ".join(k for k in PERSONALITY_PRESETS if k != "default")
+            return (
+                f"Current personality: {current}\n"
+                f"Usage: /personality <style>\n"
+                f"Presets: {presets}"
+            )
+        label = agent.set_personality(" ".join(args))
+        return f"Personality set to: {label}"
+
+    platform.register_default_handler(slack_default)
+    platform.register_command("reset", slack_reset)
+    platform.register_command("get_id", slack_get_id)
+    platform.register_command("personality", slack_personality)
+
+    await platform.start()
 
 
 async def post_shutdown(application: Application) -> None:
@@ -196,6 +244,14 @@ async def post_shutdown(application: Application) -> None:
     scheduler = application.bot_data.get("scheduler")
     if scheduler and scheduler.running:
         scheduler.shutdown(wait=False)
+
+    # Stop the Slack adapter if it was running.
+    slack_platform = application.bot_data.get("slack_platform")
+    if slack_platform is not None:
+        try:
+            await slack_platform.stop()
+        except Exception:
+            logger.exception("Error stopping Slack platform")
 
     # Signal the MCP subprocess task to exit cleanly
     shutdown_event = application.bot_data.get("shutdown_event")
