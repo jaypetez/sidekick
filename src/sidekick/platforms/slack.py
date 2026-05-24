@@ -21,6 +21,8 @@ import logging
 import os
 from typing import TYPE_CHECKING, Any
 
+from ..allowlist import DENIED_MESSAGE, is_allowed, parse_str_csv, warn_if_empty
+from ..ratelimit import get_default_limiter
 from .base import ChatPlatform, CommandHandler, DefaultHandler, IncomingMessage
 
 if TYPE_CHECKING:
@@ -30,6 +32,16 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 CHAT_ID_PREFIX = "sl"
+SLACK_ALLOWED_USERS_ENV = "SLACK_ALLOWED_USER_IDS"
+SLACK_ALLOWED_CHANNELS_ENV = "SLACK_ALLOWED_CHANNELS"
+
+
+def _slack_user_allowlist() -> frozenset[str]:
+    return parse_str_csv(os.getenv(SLACK_ALLOWED_USERS_ENV))
+
+
+def _slack_channel_allowlist() -> frozenset[str]:
+    return parse_str_csv(os.getenv(SLACK_ALLOWED_CHANNELS_ENV))
 
 
 class SlackPlatform(ChatPlatform):
@@ -60,6 +72,7 @@ class SlackPlatform(ChatPlatform):
         from slack_bolt.app.async_app import AsyncApp
 
         self._app = AsyncApp(token=self._bot_token)
+        warn_if_empty(_slack_user_allowlist(), SLACK_ALLOWED_USERS_ENV)
         self._register_listeners(self._app)
         self._socket_handler = AsyncSocketModeHandler(self._app, self._app_token)
         # start_async() returns a coroutine that runs forever — run as a task
@@ -112,6 +125,37 @@ class SlackPlatform(ChatPlatform):
             channel = event.get("channel", "")
             user = event.get("user", "")
             chat_id = f"{CHAT_ID_PREFIX}:{channel}"
+
+            # Closed-by-default user allowlist.
+            user_allow = _slack_user_allowlist()
+            if not is_allowed(user, user_allow):
+                logger.warning(
+                    "slack_denied reason=not_allowlisted user_id=%s channel=%s",
+                    user,
+                    channel,
+                )
+                await say(text=DENIED_MESSAGE, mrkdwn=False)
+                return
+
+            # Optional channel allowlist — if set, only those channels.
+            channel_allow = _slack_channel_allowlist()
+            if channel_allow and not is_allowed(channel, channel_allow):
+                logger.warning(
+                    "slack_denied reason=channel_not_allowlisted user_id=%s channel=%s",
+                    user,
+                    channel,
+                )
+                return
+
+            # Per-user rate limit.
+            limiter = get_default_limiter()
+            if not await limiter.acquire(("sl", user)):
+                logger.warning("slack_rate_limited user_id=%s channel=%s", user, channel)
+                await say(
+                    text="You're sending messages too quickly — please slow down and try again.",
+                    mrkdwn=False,
+                )
+                return
 
             # Command handling: messages starting with `/`
             if text.startswith("/"):

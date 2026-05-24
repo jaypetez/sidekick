@@ -18,6 +18,14 @@ from sidekick.platforms.slack import SlackPlatform, _strip_prefix
 def slack_env(monkeypatch):
     monkeypatch.setenv("SLACK_BOT_TOKEN", "xoxb-test")
     monkeypatch.setenv("SLACK_APP_TOKEN", "xapp-test")
+    # Allow all the synthetic Slack users the existing tests use.
+    monkeypatch.setenv("SLACK_ALLOWED_USER_IDS", "U,U1,U2")
+    monkeypatch.delenv("SLACK_ALLOWED_CHANNELS", raising=False)
+    from sidekick import ratelimit
+
+    ratelimit.reset_default_limiter()
+    yield
+    ratelimit.reset_default_limiter()
 
 
 # -------------------------------------------------------------------
