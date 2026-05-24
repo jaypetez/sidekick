@@ -3,7 +3,6 @@
 Uses a MagicMock chronary client — no real SDK calls.
 """
 
-import os
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
@@ -52,9 +51,7 @@ def test_list_events_passes_agent_id_and_limit():
     client.agents.events.list.return_value = []
 
     provider = _make_provider(client=client)
-    provider.list_events(
-        {"start_date": "2026-04-01", "end_date": "2026-04-02", "max_results": 50}
-    )
+    provider.list_events({"start_date": "2026-04-01", "end_date": "2026-04-02", "max_results": 50})
 
     args, kwargs = client.agents.events.list.call_args
     assert args[0] == "agt_test"
@@ -98,11 +95,13 @@ def test_create_event_passes_required_fields():
     )
     provider = _make_provider(client=client)
 
-    result = provider.create_event({
-        "summary": "Lunch",
-        "start_datetime": "2026-04-01T12:00:00-05:00",
-        "end_datetime": "2026-04-01T13:00:00-05:00",
-    })
+    result = provider.create_event(
+        {
+            "summary": "Lunch",
+            "start_datetime": "2026-04-01T12:00:00-05:00",
+            "end_datetime": "2026-04-01T13:00:00-05:00",
+        }
+    )
 
     kwargs = client.events.create.call_args.kwargs
     assert kwargs["calendar_id"] == "cal_test"
@@ -119,13 +118,15 @@ def test_create_event_stashes_location_in_metadata():
     client.events.create.return_value = SimpleNamespace(id="evt_x", title="X")
     provider = _make_provider(client=client)
 
-    provider.create_event({
-        "summary": "Lunch",
-        "start_datetime": "2026-04-01T12:00:00-05:00",
-        "end_datetime": "2026-04-01T13:00:00-05:00",
-        "location": "Cafe Bistro",
-        "attendees": ["a@example.com", "b@example.com"],
-    })
+    provider.create_event(
+        {
+            "summary": "Lunch",
+            "start_datetime": "2026-04-01T12:00:00-05:00",
+            "end_datetime": "2026-04-01T13:00:00-05:00",
+            "location": "Cafe Bistro",
+            "attendees": ["a@example.com", "b@example.com"],
+        }
+    )
 
     kwargs = client.events.create.call_args.kwargs
     assert kwargs["metadata"] == {
@@ -140,11 +141,13 @@ def test_create_event_all_day_flag():
     client.events.create.return_value = SimpleNamespace(id="evt_holiday", title="Holiday")
     provider = _make_provider(client=client)
 
-    provider.create_event({
-        "summary": "Holiday",
-        "start_datetime": "2026-12-25",
-        "end_datetime": "2026-12-26",
-    })
+    provider.create_event(
+        {
+            "summary": "Holiday",
+            "start_datetime": "2026-12-25",
+            "end_datetime": "2026-12-26",
+        }
+    )
 
     assert client.events.create.call_args.kwargs["all_day"] is True
 
@@ -157,8 +160,12 @@ def test_create_event_all_day_flag():
 def test_update_event_partial_fields():
     client = MagicMock()
     client.events.update.return_value = SimpleNamespace(
-        id="evt_1", title="New title", start_time="2026-04-01T15:00:00-05:00",
-        end_time="2026-04-01T16:00:00-05:00", description="d", metadata={},
+        id="evt_1",
+        title="New title",
+        start_time="2026-04-01T15:00:00-05:00",
+        end_time="2026-04-01T16:00:00-05:00",
+        description="d",
+        metadata={},
     )
     provider = _make_provider(client=client)
     provider.update_event({"event_id": "evt_1", "summary": "New title"})
@@ -177,7 +184,12 @@ def test_update_event_with_location_merges_metadata():
     client = MagicMock()
     client.events.get.return_value = SimpleNamespace(metadata={"attendees": ["a@x"]})
     client.events.update.return_value = SimpleNamespace(
-        id="evt_1", title="t", start_time="s", end_time="e", description="d", metadata={},
+        id="evt_1",
+        title="t",
+        start_time="s",
+        end_time="e",
+        description="d",
+        metadata={},
     )
     provider = _make_provider(client=client)
     provider.update_event({"event_id": "evt_1", "location": "New Room"})
@@ -199,9 +211,7 @@ def test_delete_event_calls_sdk_and_returns_status():
     provider = _make_provider(client=client)
     result = provider.delete_event({"event_id": "evt_99"})
 
-    client.events.delete.assert_called_once_with(
-        calendar_id="cal_test", event_id="evt_99"
-    )
+    client.events.delete.assert_called_once_with(calendar_id="cal_test", event_id="evt_99")
     assert result == {"status": "deleted", "event_id": "evt_99"}
 
 
