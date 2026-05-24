@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block title %}{{ list_name }}{% endblock %}
+{% block content %}
+<h1>{{ list_name }}</h1>
+<p><a href="/tasks">← All lists</a></p>
+
+<section>
+  <h2>Open items</h2>
+  {% if items %}
+  <table>
+    <thead><tr><th>Title</th><th>Actions</th></tr></thead>
+    <tbody>
+      {% for item in items %}
+      <tr>
+        <td>{{ item.title }}</td>
+        <td>
+          <form method="post" action="/tasks/{{ list_name }}/items/{{ item.title }}/complete" style="display:inline">
+            <button type="submit" class="secondary">Complete</button>
+          </form>
+          <form method="post" action="/tasks/{{ list_name }}/items/{{ item.title }}/delete" style="display:inline">
+            <button type="submit" class="danger">Delete</button>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p>Nothing open. Nice work.</p>
+  {% endif %}
+</section>
+
+<section style="margin-top:24px">
+  <h2>Add item</h2>
+  <form method="post" action="/tasks/{{ list_name }}/items">
+    <div class="field"><label>Title</label><input name="title" required></div>
+    <button type="submit">Add</button>
+  </form>
+</section>
+
+<section style="margin-top:24px">
+  <form method="post" action="/tasks/{{ list_name }}/clear-completed">
+    <button type="submit" class="secondary">Clear completed</button>
+  </form>
+</section>
+{% endblock %}

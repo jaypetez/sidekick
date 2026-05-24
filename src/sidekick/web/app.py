@@ -16,17 +16,25 @@ import aiohttp_jinja2
 import jinja2
 from aiohttp import web
 
-from .handlers import dashboard, health, reminders
+from ..storage.sqlite_tasks import SQLiteTaskStore
+from .handlers import dashboard, health, reminders, tasks
 
 
-def make_app(*, bot_data: dict[str, Any]) -> web.Application:
+def make_app(
+    *,
+    bot_data: dict[str, Any],
+    task_store: SQLiteTaskStore | None = None,
+) -> web.Application:
     """Build a configured aiohttp Application for the dashboard.
 
     ``bot_data`` is shared by reference with PTB, so updates to scheduler,
-    agent, MCP state etc. are visible immediately.
+    agent, MCP state etc. are visible immediately. ``task_store`` is a
+    dedicated SQLite connection for the web layer — multiple readers /
+    one writer is fine under WAL.
     """
     app = web.Application()
     app["bot_data"] = bot_data
+    app["task_store"] = task_store if task_store is not None else SQLiteTaskStore()
 
     templates_dir = Path(__file__).parent / "templates"
     aiohttp_jinja2.setup(app, loader=jinja2.FileSystemLoader(str(templates_dir)))
@@ -41,5 +49,25 @@ def make_app(*, bot_data: dict[str, Any]) -> web.Application:
     app.router.add_post("/reminders", reminders.create, name="reminders.create")
     app.router.add_post("/reminders/{id}", reminders.update, name="reminders.update")
     app.router.add_post("/reminders/{id}/delete", reminders.delete, name="reminders.delete")
+
+    app.router.add_get("/tasks", tasks.index, name="tasks.index")
+    app.router.add_get("/tasks/{list_name}", tasks.detail, name="tasks.detail")
+    app.router.add_post("/tasks/{list_name}/items", tasks.add_item, name="tasks.add_item")
+    app.router.add_post(
+        "/tasks/{list_name}/items/{title}/complete",
+        tasks.complete_item,
+        name="tasks.complete_item",
+    )
+    app.router.add_post(
+        "/tasks/{list_name}/items/{title}/delete",
+        tasks.delete_item,
+        name="tasks.delete_item",
+    )
+    app.router.add_post(
+        "/tasks/{list_name}/clear-completed",
+        tasks.clear_completed,
+        name="tasks.clear_completed",
+    )
+    app.router.add_post("/tasks/{list_name}/delete", tasks.delete_list, name="tasks.delete_list")
 
     return app

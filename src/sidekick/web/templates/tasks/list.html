@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block title %}Tasks{% endblock %}
+{% block content %}
+<h1>Task lists</h1>
+
+{% if lists %}
+<table>
+  <thead><tr><th>List</th><th>Open items</th><th>Actions</th></tr></thead>
+  <tbody>
+    {% for l in lists %}
+    <tr>
+      <td><a href="/tasks/{{ l.name }}">{{ l.name }}</a></td>
+      <td>{{ l.open_count }}</td>
+      <td>
+        <form method="post" action="/tasks/{{ l.name }}/delete" style="display:inline">
+          <button type="submit" class="danger">Delete list</button>
+        </form>
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p>No task lists yet. Add an item from a list page or via chat to create one.</p>
+{% endif %}
+{% endblock %}
