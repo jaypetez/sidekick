@@ -16,6 +16,7 @@ dependencies = [
     "chronary>=0.1.3",
     "slack-bolt>=1.20",
     "aiohttp>=3.10",
+    "ollama>=0.4",
     "APScheduler==3.10.4",
     "python-dotenv==1.0.1",
 ]
