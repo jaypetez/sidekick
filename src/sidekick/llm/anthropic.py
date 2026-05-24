@@ -4,18 +4,18 @@ Thin wrapper around `anthropic.AsyncAnthropic`. Pre-existing tool-use loop
 in agent.py consumes the raw response, so this passes through.
 """
 
-import os
 from typing import Any
 
 import anthropic
 
+from .. import runtime_config
 from .base import LLMClient
 
 
 class AnthropicClient(LLMClient):
     def __init__(self, *, model: str | None = None, api_key: str | None = None) -> None:
-        self.model = model or os.getenv("CLAUDE_MODEL") or "claude-haiku-4-5-20251001"
-        resolved_key = api_key or os.getenv("ANTHROPIC_API_KEY")
+        self.model = model or runtime_config.get("CLAUDE_MODEL") or "claude-haiku-4-5-20251001"
+        resolved_key = api_key or runtime_config.get("ANTHROPIC_API_KEY")
         if not resolved_key:
             raise RuntimeError(
                 "ANTHROPIC_API_KEY is not set — set it in your environment "

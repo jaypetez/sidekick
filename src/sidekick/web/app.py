@@ -23,6 +23,7 @@ from aiohttp_session.cookie_storage import EncryptedCookieStorage
 from ..calendar.chronary import ChronaryProvider
 from ..storage.sqlite_tasks import SQLiteTaskStore
 from . import csrf as csrf_mod
+from .api import make_api_app
 from .auth import get_auth_token, load_or_create_session_secret
 from .handlers import (
     calendar_routes,
@@ -212,5 +213,10 @@ def make_app(
     app.router.add_post(
         "/settings/personality", settings.set_personality, name="settings.personality"
     )
+
+    # JSON API surface — same business logic via the services layer, served
+    # under /api/. Handlers inside the sub-app read shared state through
+    # ``request.config_dict`` (a ChainMap that includes the parent app).
+    app.add_subapp("/api/", make_api_app())
 
     return app
