@@ -19,8 +19,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from mcp import ClientSession
 from telegram import Bot
 
-from .llm import LLMClient
-from .llm.anthropic import AnthropicClient
+from .llm import LLMClient, build_llm_client
 from .reminders import (
     add_reminder,
     get_all_reminders,
@@ -175,7 +174,7 @@ class FamilyAgent:
         llm: LLMClient | None = None,
     ):
         self.session = mcp_session
-        self.llm: LLMClient = llm or AnthropicClient()
+        self.llm: LLMClient = llm or build_llm_client()
         self.timezone = os.getenv("TIMEZONE", "America/Chicago")
         # chat_id can be an int (Telegram, historic) or a string ("sl:C0123",
         # "tg:-100123") once platforms prefix their ids.
