@@ -12,6 +12,7 @@ import logging
 import os
 from datetime import datetime
 from pathlib import Path
+from typing import Any
 from zoneinfo import ZoneInfo
 
 import anthropic
@@ -46,14 +47,15 @@ PERSONALITY_PRESETS = {
 }
 
 
-def _read_config() -> dict:
+def _read_config() -> dict[str, Any]:
     try:
-        return json.loads(Path(CONFIG_FILE).read_text())
+        data: Any = json.loads(Path(CONFIG_FILE).read_text())
+        return data if isinstance(data, dict) else {}
     except (FileNotFoundError, json.JSONDecodeError, OSError):
         return {}
 
 
-def _write_config(config: dict) -> None:
+def _write_config(config: dict[str, Any]) -> None:
     path = Path(CONFIG_FILE)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(config, indent=2))
@@ -86,9 +88,7 @@ If an operation fails, explain what went wrong in plain English.\
 {personality}"""
 
 # Tool names handled locally (not forwarded to MCP subprocess)
-LOCAL_REMINDER_TOOLS = {
-    "list_reminders", "add_reminder", "update_reminder", "remove_reminder"
-}
+LOCAL_REMINDER_TOOLS = {"list_reminders", "add_reminder", "update_reminder", "remove_reminder"}
 
 REMINDER_TOOL_DEFS = [
     {
@@ -172,14 +172,14 @@ class FamilyAgent:
         bot: Bot | None = None,
         reminder_chat_id: int | None = None,
         llm: LLMClient | None = None,
-    ):
+    ) -> None:
         self.session = mcp_session
         self.llm: LLMClient = llm or build_llm_client()
         self.timezone = os.getenv("TIMEZONE", "America/Chicago")
         # chat_id can be an int (Telegram, historic) or a string ("sl:C0123",
         # "tg:-100123") once platforms prefix their ids.
-        self.conversation_history: dict[int | str, list[dict]] = {}
-        self.tools: list[dict] = []
+        self.conversation_history: dict[int | str, list[dict[str, Any]]] = {}
+        self.tools: list[dict[str, Any]] = []
         self.personality = _read_config().get("personality", "")
         self.scheduler = scheduler
         self.bot = bot
@@ -198,8 +198,12 @@ class FamilyAgent:
         ]
         # Add local reminder tools
         self.tools.extend(REMINDER_TOOL_DEFS)
-        logger.info("Loaded %d tools (%d MCP + %d local)", len(self.tools),
-                     len(self.tools) - len(REMINDER_TOOL_DEFS), len(REMINDER_TOOL_DEFS))
+        logger.info(
+            "Loaded %d tools (%d MCP + %d local)",
+            len(self.tools),
+            len(self.tools) - len(REMINDER_TOOL_DEFS),
+            len(REMINDER_TOOL_DEFS),
+        )
 
     def clear_history(self, chat_id: int | str) -> None:
         self.conversation_history.pop(chat_id, None)
@@ -274,16 +278,12 @@ class FamilyAgent:
             if response.stop_reason == "end_turn":
                 # Extract text from the response and save to history
                 text = self._extract_text(response.content)
-                history.append(
-                    {"role": "assistant", "content": response.content}
-                )
+                history.append({"role": "assistant", "content": response.content})
                 return text
 
             if response.stop_reason == "tool_use":
                 # Append the full assistant message (text + tool_use blocks)
-                history.append(
-                    {"role": "assistant", "content": response.content}
-                )
+                history.append({"role": "assistant", "content": response.content})
 
                 # Execute every tool call and collect results
                 tool_results = []
@@ -300,11 +300,13 @@ class FamilyAgent:
                     else:
                         # Forward to MCP subprocess
                         mcp_result = await self.session.call_tool(block.name, block.input)
-                        result_text = (
-                            mcp_result.content[0].text
-                            if mcp_result.content
-                            else '{"error": "no result"}'
-                        )
+                        if mcp_result.content:
+                            first = mcp_result.content[0]
+                            result_text = (
+                                first.text if hasattr(first, "text") else '{"error": "no result"}'
+                            )
+                        else:
+                            result_text = '{"error": "no result"}'
 
                     tool_results.append(
                         {
@@ -321,7 +323,9 @@ class FamilyAgent:
             # Unexpected stop reason — return whatever text we have
             return self._extract_text(response.content) or "(no response)"
 
-    def _handle_reminder_tool(self, name: str, args: dict) -> dict | list:
+    def _handle_reminder_tool(
+        self, name: str, args: dict[str, Any]
+    ) -> dict[str, Any] | list[dict[str, Any]]:
         """Dispatch local reminder tool calls."""
         if not self.scheduler or not self.bot:
             return {"error": "Reminder system not available"}
@@ -356,11 +360,11 @@ class FamilyAgent:
         else:
             return {"error": f"Unknown reminder tool: {name}"}
 
-    def _extract_text(self, content: list) -> str:
+    def _extract_text(self, content: list[Any]) -> str:
         parts = [block.text for block in content if hasattr(block, "text")]
         return "\n".join(parts).strip()
 
-    def _trim_history(self, history: list) -> None:
+    def _trim_history(self, history: list[dict[str, Any]]) -> None:
         """Keep history within MAX_HISTORY_TURNS pairs to avoid unbounded growth."""
         # Count user messages as a proxy for turns
         user_count = sum(1 for m in history if m["role"] == "user")

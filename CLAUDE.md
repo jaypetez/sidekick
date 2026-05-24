@@ -6,8 +6,6 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Sidekick is a self-hosted chat bot that manages your calendar, task lists, and scheduled reminders through natural language. It runs on Telegram (always) and Slack (optional), uses Chronary.ai for the calendar backend, a local SQLite database for tasks/groceries, and either Anthropic Claude (default) or a local Ollama server for the LLM.
 
-No Google services are in the loop.
-
 ## Commands
 
 ```bash
@@ -20,7 +18,7 @@ sidekick-init
 # Run the bot
 sidekick
 
-# All tests (currently 87)
+# All tests
 pytest -v
 
 # Single file / single test
@@ -94,6 +92,9 @@ Per-chat history in `agent.py` (`conversation_history` dict). Keys are `int` for
 | `SIDEKICK_DB_PATH` | `~/.config/sidekick/sidekick.db` | No |
 | `SLACK_BOT_TOKEN`, `SLACK_APP_TOKEN` | — | Only if Slack is enabled |
 | `REMINDER_CHAT_ID` | — | No (disables reminders if unset) |
+| `MORNING_REMINDER_TIME` | `07:30` | No (HH:MM 24-hour) |
+| `PRE_EVENT_REMINDER_MINUTES` | `30` | No (lead time for pre-event alerts) |
+| `SIDEKICK_CONFIG_DIR` | `~/.config/sidekick` | No (relocates reminders.json, DB, and personality state) |
 | `TIMEZONE` | `America/Chicago` | No |
 | `CLAUDE_MODEL` | `claude-haiku-4-5-20251001` | No |
 
@@ -106,5 +107,7 @@ Tests use `unittest.mock` — no live API calls. Notable conventions:
 - MCP server tests construct a server with `@patch("sidekick.mcp_server.Server")` to avoid starting the real MCP transport
 - SQLite tests inject a `:memory:` connection via the `SQLiteTaskStore(conn=...)` constructor
 - Ollama tests use a fake client and verify the format-translation helpers directly — no live ollama server
+
+`pytest-asyncio` is in dev deps but `asyncio_mode = auto` is **not** configured — every async test must carry an explicit `@pytest.mark.asyncio` decorator.
 
 CI runs pytest on Python 3.11 and 3.12 via GitHub Actions.

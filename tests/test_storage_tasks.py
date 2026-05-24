@@ -164,9 +164,7 @@ def test_status_check_constraint_rejects_invalid_value(store):
     """Schema CHECK constraint must reject statuses other than the enum."""
     store.add_tasks({"list_name": "X", "items": ["a"]})
     with pytest.raises(sqlite3.IntegrityError):
-        store._conn.execute(
-            "UPDATE tasks SET status = 'bogus' WHERE title = 'a'"
-        )
+        store._conn.execute("UPDATE tasks SET status = 'bogus' WHERE title = 'a'")
         store._conn.commit()
 
 

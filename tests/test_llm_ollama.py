@@ -17,7 +17,6 @@ from sidekick.llm.ollama import (
     _tool_anthropic_to_ollama,
 )
 
-
 # -------------------------------------------------------------------
 # Tool format conversion
 # -------------------------------------------------------------------
@@ -57,44 +56,54 @@ def test_messages_passthrough_string_content():
 
 
 def test_messages_assistant_text_block():
-    msgs = [{
-        "role": "assistant",
-        "content": [SimpleNamespace(type="text", text="hello")],
-    }]
+    msgs = [
+        {
+            "role": "assistant",
+            "content": [SimpleNamespace(type="text", text="hello")],
+        }
+    ]
     out = _messages_anthropic_to_ollama(msgs)
     assert out == [{"role": "assistant", "content": "hello"}]
 
 
 def test_messages_assistant_tool_use():
-    msgs = [{
-        "role": "assistant",
-        "content": [
-            SimpleNamespace(type="text", text="ok"),
-            SimpleNamespace(type="tool_use", id="t1", name="list_events", input={"x": 1}),
-        ],
-    }]
+    msgs = [
+        {
+            "role": "assistant",
+            "content": [
+                SimpleNamespace(type="text", text="ok"),
+                SimpleNamespace(type="tool_use", id="t1", name="list_events", input={"x": 1}),
+            ],
+        }
+    ]
     out = _messages_anthropic_to_ollama(msgs)
     assert out[0]["role"] == "assistant"
     assert out[0]["content"] == "ok"
-    assert out[0]["tool_calls"] == [{
-        "id": "t1",
-        "type": "function",
-        "function": {"name": "list_events", "arguments": {"x": 1}},
-    }]
+    assert out[0]["tool_calls"] == [
+        {
+            "id": "t1",
+            "type": "function",
+            "function": {"name": "list_events", "arguments": {"x": 1}},
+        }
+    ]
 
 
 def test_messages_user_tool_result():
     """User messages carrying tool_result blocks map to role='tool' entries."""
-    msgs = [{
-        "role": "user",
-        "content": [{"type": "tool_result", "tool_use_id": "t1", "content": "result text"}],
-    }]
+    msgs = [
+        {
+            "role": "user",
+            "content": [{"type": "tool_result", "tool_use_id": "t1", "content": "result text"}],
+        }
+    ]
     out = _messages_anthropic_to_ollama(msgs)
-    assert out == [{
-        "role": "tool",
-        "tool_call_id": "t1",
-        "content": "result text",
-    }]
+    assert out == [
+        {
+            "role": "tool",
+            "tool_call_id": "t1",
+            "content": "result text",
+        }
+    ]
 
 
 # -------------------------------------------------------------------
@@ -116,10 +125,12 @@ def test_response_tool_call_yields_tool_use():
         "message": {
             "role": "assistant",
             "content": "",
-            "tool_calls": [{
-                "id": "call_1",
-                "function": {"name": "list_events", "arguments": {"x": 1}},
-            }],
+            "tool_calls": [
+                {
+                    "id": "call_1",
+                    "function": {"name": "list_events", "arguments": {"x": 1}},
+                }
+            ],
         }
     }
     result = _response_ollama_to_anthropic(response)
@@ -168,9 +179,9 @@ def test_response_generates_id_when_missing():
 @pytest.mark.asyncio
 async def test_chat_passes_translated_messages_and_tools():
     """chat() must hand Ollama-shaped tools and messages to the SDK."""
-    fake_client = SimpleNamespace(chat=AsyncMock(return_value={
-        "message": {"role": "assistant", "content": "hi"}
-    }))
+    fake_client = SimpleNamespace(
+        chat=AsyncMock(return_value={"message": {"role": "assistant", "content": "hi"}})
+    )
     llm = OllamaClient(model="llama3.1:8b", client=fake_client)
 
     await llm.chat(

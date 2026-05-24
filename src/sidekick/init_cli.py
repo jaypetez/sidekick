@@ -13,6 +13,14 @@ import json
 import os
 import sys
 from pathlib import Path
+from typing import Any
+
+
+def _id_of(obj: Any) -> Any:
+    """Chronary SDK objects may be Pydantic models or plain dicts; tolerate both."""
+    if isinstance(obj, dict):
+        return obj["id"]
+    return obj.id
 
 
 def main() -> None:
@@ -26,7 +34,7 @@ def main() -> None:
         sys.exit(1)
 
     try:
-        from chronary import Chronary  # type: ignore[import-not-found]
+        from chronary import Chronary
     except ImportError:
         print(
             "The `chronary` package isn't installed. Run: pip install chronary",
@@ -38,8 +46,8 @@ def main() -> None:
     timezone = os.getenv("TIMEZONE", "America/Chicago")
 
     print("Creating Chronary agent for sidekick...")
-    agent = client.agents.create(name="sidekick")
-    agent_id = getattr(agent, "id", None) or agent["id"]
+    agent = client.agents.create(name="sidekick", type="ai")
+    agent_id = _id_of(agent)
     print(f"  agent_id = {agent_id}")
 
     print("Creating default calendar...")
@@ -48,16 +56,14 @@ def main() -> None:
         name="Sidekick",
         timezone=timezone,
     )
-    calendar_id = getattr(calendar, "id", None) or calendar["id"]
+    calendar_id = _id_of(calendar)
     print(f"  calendar_id = {calendar_id}")
 
-    config_dir = Path(
-        os.getenv("SIDEKICK_CONFIG_DIR", os.path.expanduser("~/.config/sidekick"))
-    )
+    config_dir = Path(os.getenv("SIDEKICK_CONFIG_DIR", os.path.expanduser("~/.config/sidekick")))
     config_dir.mkdir(parents=True, exist_ok=True)
     config_path = config_dir / "config.json"
 
-    existing: dict = {}
+    existing: dict[str, Any] = {}
     if config_path.exists():
         try:
             existing = json.loads(config_path.read_text())

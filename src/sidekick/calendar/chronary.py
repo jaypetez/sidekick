@@ -36,20 +36,16 @@ class ChronaryProvider(CalendarProvider):
     ) -> None:
         self.agent_id = agent_id or os.environ["CHRONARY_AGENT_ID"]
         self.calendar_id = calendar_id or os.environ["CHRONARY_CALENDAR_ID"]
-        self.timezone = timezone or os.getenv("TIMEZONE", "America/Chicago")
+        self.timezone = timezone or os.getenv("TIMEZONE") or "America/Chicago"
         self.client = client if client is not None else _build_client(api_key)
 
-    def list_events(self, args: dict) -> list[dict]:
+    def list_events(self, args: dict[str, Any]) -> list[dict[str, Any]]:
         start_date = args["start_date"]
         end_date = args["end_date"]
         max_results = args.get("max_results", 20)
 
         tz = ZoneInfo(self.timezone)
-        start_after = (
-            datetime.strptime(start_date, "%Y-%m-%d")
-            .replace(tzinfo=tz)
-            .isoformat()
-        )
+        start_after = datetime.strptime(start_date, "%Y-%m-%d").replace(tzinfo=tz).isoformat()
         start_before = (
             datetime.strptime(end_date, "%Y-%m-%d")
             .replace(hour=23, minute=59, second=59, tzinfo=tz)
@@ -64,15 +60,15 @@ class ChronaryProvider(CalendarProvider):
         )
         return [_event_to_dict(e) for e in result]
 
-    def create_event(self, args: dict) -> dict:
+    def create_event(self, args: dict[str, Any]) -> dict[str, Any]:
         # Chronary requires ISO 8601 timestamps; passthrough.
-        metadata: dict = {}
+        metadata: dict[str, Any] = {}
         if args.get("location"):
             metadata["location"] = args["location"]
         if args.get("attendees"):
             metadata["attendees"] = list(args["attendees"])
 
-        kwargs: dict = {
+        kwargs: dict[str, Any] = {
             "calendar_id": self.calendar_id,
             "title": args["summary"],
             "start_time": args["start_datetime"],
@@ -93,9 +89,9 @@ class ChronaryProvider(CalendarProvider):
             "htmlLink": _attr(event, "url") or _attr(event, "html_link"),
         }
 
-    def update_event(self, args: dict) -> dict:
+    def update_event(self, args: dict[str, Any]) -> dict[str, Any]:
         event_id = args["event_id"]
-        kwargs: dict = {}
+        kwargs: dict[str, Any] = {}
         if "summary" in args:
             kwargs["title"] = args["summary"]
         if "description" in args:
@@ -108,9 +104,7 @@ class ChronaryProvider(CalendarProvider):
             # Merge into metadata. We don't fetch the existing event first
             # because Chronary's PATCH semantics replace metadata wholesale
             # only if `metadata` is included; partial updates need a read.
-            existing = self.client.events.get(
-                calendar_id=self.calendar_id, event_id=event_id
-            )
+            existing = self.client.events.get(calendar_id=self.calendar_id, event_id=event_id)
             metadata = dict(_attr(existing, "metadata") or {})
             if "location" in args:
                 metadata["location"] = args["location"]
@@ -123,7 +117,7 @@ class ChronaryProvider(CalendarProvider):
         )
         return _event_to_dict(updated)
 
-    def delete_event(self, args: dict) -> dict:
+    def delete_event(self, args: dict[str, Any]) -> dict[str, Any]:
         event_id = args["event_id"]
         self.client.events.delete(calendar_id=self.calendar_id, event_id=event_id)
         return {"status": "deleted", "event_id": event_id}
@@ -136,7 +130,7 @@ def _attr(obj: Any, name: str, default: Any = None) -> Any:
     return getattr(obj, name, default)
 
 
-def _event_to_dict(event: Any) -> dict:
+def _event_to_dict(event: Any) -> dict[str, Any]:
     metadata = _attr(event, "metadata") or {}
     if not isinstance(metadata, dict):
         metadata = {}
@@ -153,6 +147,6 @@ def _event_to_dict(event: Any) -> dict:
 
 def _build_client(api_key: str | None) -> Any:
     """Lazy-import the chronary SDK so tests can run without it installed."""
-    from chronary import Chronary  # type: ignore[import-not-found]
+    from chronary import Chronary
 
     return Chronary(api_key=api_key or os.environ["CHRONARY_API_KEY"])

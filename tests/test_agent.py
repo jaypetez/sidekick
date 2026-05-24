@@ -105,9 +105,14 @@ def test_handle_reminder_tool_list(mock_get):
 def test_handle_reminder_tool_add(mock_add):
     mock_add.return_value = {"status": "created", "id": "r1"}
     agent = _make_agent(scheduler=MagicMock(), bot=MagicMock())
-    result = agent._handle_reminder_tool("add_reminder", {
-        "message": "Test", "hour": 9, "minute": 0,
-    })
+    result = agent._handle_reminder_tool(
+        "add_reminder",
+        {
+            "message": "Test",
+            "hour": 9,
+            "minute": 0,
+        },
+    )
     mock_add.assert_called_once()
     assert result["status"] == "created"
 
@@ -116,9 +121,13 @@ def test_handle_reminder_tool_add(mock_add):
 def test_handle_reminder_tool_update(mock_update):
     mock_update.return_value = {"status": "updated", "id": "r1"}
     agent = _make_agent(scheduler=MagicMock(), bot=MagicMock())
-    result = agent._handle_reminder_tool("update_reminder", {
-        "reminder_id": "r1", "hour": 10,
-    })
+    result = agent._handle_reminder_tool(
+        "update_reminder",
+        {
+            "reminder_id": "r1",
+            "hour": 10,
+        },
+    )
     mock_update.assert_called_once()
     assert result["status"] == "updated"
 

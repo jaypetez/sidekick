@@ -138,8 +138,42 @@ expect; the live settings can be inspected at
 > code owners are added to [`CODEOWNERS`](CODEOWNERS), admin enforcement
 > should be turned on (`enforce_admins: true`).
 
-If a CI workflow is added later, required status checks should also be
-enabled so PRs cannot merge until checks pass.
+### Required status checks
+
+Every PR must pass the following CI jobs before it can merge:
+
+| Job name              | What it runs                                     |
+| --------------------- | ------------------------------------------------ |
+| `lint`                | `ruff check .` + `ruff format --check .`         |
+| `typecheck`           | `mypy src/sidekick` (strict mode)                |
+| `test (py3.11)`       | `pytest` with 80% coverage floor on Python 3.11  |
+| `test (py3.12)`       | same, on Python 3.12                             |
+| `dependency-review`   | GitHub's dependency-review-action (PRs only)     |
+
+Apply these checks to branch protection via `gh api`:
+
+```sh
+gh api -X PATCH repos/jaypetez/sidekick/branches/main/protection/required_status_checks \
+  -F strict=true \
+  -F 'contexts[]=lint' \
+  -F 'contexts[]=typecheck' \
+  -F 'contexts[]=test (py3.11)' \
+  -F 'contexts[]=test (py3.12)' \
+  -F 'contexts[]=dependency-review'
+```
+
+## Local pre-commit setup
+
+The repo ships a `.pre-commit-config.yaml` that mirrors the lint + format
+checks CI runs, so contributors catch issues before pushing:
+
+```sh
+pip install -e ".[dev]"
+pre-commit install
+```
+
+After that, `ruff check --fix` and `ruff format` run automatically on every
+commit.
 
 ## Merge strategy
 

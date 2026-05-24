@@ -16,9 +16,9 @@ Schema:
 import os
 import sqlite3
 from pathlib import Path
+from typing import Any
 
 from .base import TaskStore
-
 
 SCHEMA = """
 PRAGMA foreign_keys = ON;
@@ -60,7 +60,9 @@ def _connect(db_path: str) -> sqlite3.Connection:
 
 
 class SQLiteTaskStore(TaskStore):
-    def __init__(self, db_path: str | None = None, *, conn: sqlite3.Connection | None = None) -> None:
+    def __init__(
+        self, db_path: str | None = None, *, conn: sqlite3.Connection | None = None
+    ) -> None:
         """Either pass an explicit `conn` (tests use ":memory:") or let it open
         a file connection from `db_path` / SIDEKICK_DB_PATH."""
         if conn is not None:
@@ -88,13 +90,12 @@ class SQLiteTaskStore(TaskStore):
         list_id = self.find_task_list(list_name)
         if list_id is not None:
             return list_id
-        cursor = self._conn.execute(
-            "INSERT INTO task_lists (name) VALUES (?)", (list_name,)
-        )
+        cursor = self._conn.execute("INSERT INTO task_lists (name) VALUES (?)", (list_name,))
         self._conn.commit()
+        assert cursor.lastrowid is not None
         return cursor.lastrowid
 
-    def find_task_by_title(self, list_id: int, title: str) -> dict | None:
+    def find_task_by_title(self, list_id: int, title: str) -> dict[str, Any] | None:
         """First incomplete task matching title (case-insensitive partial match)."""
         row = self._conn.execute(
             "SELECT id, title, status FROM tasks "
@@ -108,7 +109,7 @@ class SQLiteTaskStore(TaskStore):
     # TaskStore interface
     # ------------------------------------------------------------------
 
-    def list_tasks(self, args: dict) -> list[dict]:
+    def list_tasks(self, args: dict[str, Any]) -> list[dict[str, Any]]:
         list_id = self.get_or_create_task_list(args["list_name"])
         rows = self._conn.execute(
             "SELECT title, status FROM tasks "
@@ -117,7 +118,7 @@ class SQLiteTaskStore(TaskStore):
         ).fetchall()
         return [{"title": r["title"], "status": r["status"]} for r in rows]
 
-    def add_tasks(self, args: dict) -> dict:
+    def add_tasks(self, args: dict[str, Any]) -> dict[str, Any]:
         list_id = self.get_or_create_task_list(args["list_name"])
         added = []
         for item in args["items"]:
@@ -129,11 +130,13 @@ class SQLiteTaskStore(TaskStore):
         self._conn.commit()
         return {"status": "added", "items": added, "list": args["list_name"]}
 
-    def complete_task(self, args: dict) -> dict:
+    def complete_task(self, args: dict[str, Any]) -> dict[str, Any]:
         list_id = self.get_or_create_task_list(args["list_name"])
         task = self.find_task_by_title(list_id, args["task_title"])
         if not task:
-            return {"error": f"No task matching '{args['task_title']}' found in {args['list_name']}"}
+            return {
+                "error": f"No task matching '{args['task_title']}' found in {args['list_name']}"
+            }
         self._conn.execute(
             "UPDATE tasks SET status = 'completed', "
             "completed_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now') WHERE id = ?",
@@ -142,16 +145,18 @@ class SQLiteTaskStore(TaskStore):
         self._conn.commit()
         return {"status": "completed", "title": task["title"]}
 
-    def delete_task(self, args: dict) -> dict:
+    def delete_task(self, args: dict[str, Any]) -> dict[str, Any]:
         list_id = self.get_or_create_task_list(args["list_name"])
         task = self.find_task_by_title(list_id, args["task_title"])
         if not task:
-            return {"error": f"No task matching '{args['task_title']}' found in {args['list_name']}"}
+            return {
+                "error": f"No task matching '{args['task_title']}' found in {args['list_name']}"
+            }
         self._conn.execute("DELETE FROM tasks WHERE id = ?", (task["id"],))
         self._conn.commit()
         return {"status": "deleted", "title": task["title"]}
 
-    def clear_completed(self, args: dict) -> dict:
+    def clear_completed(self, args: dict[str, Any]) -> dict[str, Any]:
         list_id = self.get_or_create_task_list(args["list_name"])
         self._conn.execute(
             "DELETE FROM tasks WHERE list_id = ? AND status = 'completed'",
@@ -160,13 +165,11 @@ class SQLiteTaskStore(TaskStore):
         self._conn.commit()
         return {"status": "cleared", "list": args["list_name"]}
 
-    def list_task_lists(self, args: dict) -> list[dict]:
-        rows = self._conn.execute(
-            "SELECT id, name FROM task_lists ORDER BY name"
-        ).fetchall()
+    def list_task_lists(self, args: dict[str, Any]) -> list[dict[str, Any]]:
+        rows = self._conn.execute("SELECT id, name FROM task_lists ORDER BY name").fetchall()
         return [{"title": r["name"], "id": str(r["id"])} for r in rows]
 
-    def delete_task_list(self, args: dict) -> dict:
+    def delete_task_list(self, args: dict[str, Any]) -> dict[str, Any]:
         list_id = self.find_task_list(args["list_name"])
         if list_id is None:
             return {"error": f"Task list '{args['list_name']}' not found"}
@@ -174,7 +177,7 @@ class SQLiteTaskStore(TaskStore):
         self._conn.commit()
         return {"status": "deleted", "list": args["list_name"]}
 
-    def rename_task_list(self, args: dict) -> dict:
+    def rename_task_list(self, args: dict[str, Any]) -> dict[str, Any]:
         list_id = self.find_task_list(args["list_name"])
         if list_id is None:
             return {"error": f"Task list '{args['list_name']}' not found"}

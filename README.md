@@ -4,7 +4,7 @@
 
 <p align="center">
   <strong>The AI assistant you text like a friend.</strong><br>
-  Calendar, lists, and reminders — on Telegram or Slack, powered by Claude or a local LLM. Self-hosted, zero Google.
+  Calendar, lists, and reminders — on Telegram or Slack, powered by Claude or a local LLM. Self-hosted.
 </p>
 
 <p align="center">

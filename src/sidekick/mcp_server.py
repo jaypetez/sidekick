@@ -11,16 +11,17 @@ Exposes twelve tools to Claude:
 import asyncio
 import json
 import os
+from typing import Any
 
-from mcp.server import Server
 import mcp.types as types
+from mcp.server import Server
 
 from .calendar.chronary import ChronaryProvider
 from .storage.sqlite_tasks import SQLiteTaskStore
 
 
 class MCPServer:
-    def __init__(self):
+    def __init__(self) -> None:
         self.timezone = os.getenv("TIMEZONE", "America/Chicago")
         self._calendar: ChronaryProvider | None = None
         self._tasks_store: SQLiteTaskStore | None = None
@@ -50,7 +51,7 @@ class MCPServer:
     # ------------------------------------------------------------------
 
     def _register_tools(self) -> None:
-        @self.server.list_tools()
+        @self.server.list_tools()  # type: ignore[no-untyped-call, untyped-decorator]
         async def handle_list_tools() -> list[types.Tool]:
             return [
                 types.Tool(
@@ -269,9 +270,9 @@ class MCPServer:
                 ),
             ]
 
-        @self.server.call_tool()
+        @self.server.call_tool()  # type: ignore[untyped-decorator]
         async def handle_call_tool(
-            name: str, arguments: dict | None
+            name: str, arguments: dict[str, Any] | None
         ) -> list[types.TextContent]:
             args = arguments or {}
             try:
@@ -281,15 +282,16 @@ class MCPServer:
                 return [types.TextContent(type="text", text=json.dumps(result))]
             except Exception as e:
                 import logging
+
                 logging.getLogger(__name__).error(
                     "Unexpected error calling %s: %s", name, e, exc_info=True
                 )
                 error = {"error": str(e)}
                 return [types.TextContent(type="text", text=json.dumps(error))]
 
-    def _dispatch(self, name: str, args: dict) -> dict | list:
+    def _dispatch(self, name: str, args: dict[str, Any]) -> dict[str, Any] | list[dict[str, Any]]:
         """Synchronous dispatch to the appropriate provider call."""
-        dispatch = {
+        dispatch: dict[str, Any] = {
             "list_events": self._list_events,
             "create_event": self._create_event,
             "update_event": self._update_event,
@@ -305,23 +307,24 @@ class MCPServer:
         }
         handler = dispatch.get(name)
         if handler:
-            return handler(args)
+            result: dict[str, Any] | list[dict[str, Any]] = handler(args)
+            return result
         return {"error": f"Unknown tool: {name}"}
 
     # ------------------------------------------------------------------
     # Tool implementations — delegate to providers.
     # ------------------------------------------------------------------
 
-    def _list_events(self, args: dict) -> list:
+    def _list_events(self, args: dict[str, Any]) -> list[dict[str, Any]]:
         return self.calendar.list_events(args)
 
-    def _create_event(self, args: dict) -> dict:
+    def _create_event(self, args: dict[str, Any]) -> dict[str, Any]:
         return self.calendar.create_event(args)
 
-    def _update_event(self, args: dict) -> dict:
+    def _update_event(self, args: dict[str, Any]) -> dict[str, Any]:
         return self.calendar.update_event(args)
 
-    def _delete_event(self, args: dict) -> dict:
+    def _delete_event(self, args: dict[str, Any]) -> dict[str, Any]:
         return self.calendar.delete_event(args)
 
     # Helpers kept so tests / external callers can poke at the store
@@ -331,40 +334,41 @@ class MCPServer:
     def _get_or_create_task_list(self, list_name: str) -> int:
         return self.tasks_store.get_or_create_task_list(list_name)
 
-    def _find_task_by_title(self, list_id: int, title: str) -> dict | None:
+    def _find_task_by_title(self, list_id: int, title: str) -> dict[str, Any] | None:
         return self.tasks_store.find_task_by_title(list_id, title)
 
-    def _list_tasks(self, args: dict) -> list:
+    def _list_tasks(self, args: dict[str, Any]) -> list[dict[str, Any]]:
         return self.tasks_store.list_tasks(args)
 
-    def _add_tasks(self, args: dict) -> dict:
+    def _add_tasks(self, args: dict[str, Any]) -> dict[str, Any]:
         return self.tasks_store.add_tasks(args)
 
-    def _complete_task(self, args: dict) -> dict:
+    def _complete_task(self, args: dict[str, Any]) -> dict[str, Any]:
         return self.tasks_store.complete_task(args)
 
-    def _delete_task(self, args: dict) -> dict:
+    def _delete_task(self, args: dict[str, Any]) -> dict[str, Any]:
         return self.tasks_store.delete_task(args)
 
-    def _clear_completed(self, args: dict) -> dict:
+    def _clear_completed(self, args: dict[str, Any]) -> dict[str, Any]:
         return self.tasks_store.clear_completed(args)
 
-    def _list_task_lists(self, args: dict) -> list:
+    def _list_task_lists(self, args: dict[str, Any]) -> list[dict[str, Any]]:
         return self.tasks_store.list_task_lists(args)
 
-    def _delete_task_list(self, args: dict) -> dict:
+    def _delete_task_list(self, args: dict[str, Any]) -> dict[str, Any]:
         return self.tasks_store.delete_task_list(args)
 
-    def _rename_task_list(self, args: dict) -> dict:
+    def _rename_task_list(self, args: dict[str, Any]) -> dict[str, Any]:
         return self.tasks_store.rename_task_list(args)
 
 
 if __name__ == "__main__":
     import asyncio
+
     from mcp.server.stdio import stdio_server
 
     async def _serve() -> None:
-        server = MCPServer()
+        server: MCPServer = MCPServer()
         async with stdio_server() as (read_stream, write_stream):
             await server.server.run(
                 read_stream,

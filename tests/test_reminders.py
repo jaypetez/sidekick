@@ -1,8 +1,7 @@
 import asyncio
 import json
-import os
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -20,7 +19,6 @@ from sidekick.reminders import (
     send_pre_event_reminders,
     update_reminder,
 )
-
 
 # -------------------------------------------------------------------
 # _format_time
@@ -112,8 +110,12 @@ def test_add_reminder_with_day_of_week(mock_scheduler, mock_bot, tmp_reminders_f
 
 def test_remove_reminder_success(mock_scheduler, mock_bot, tmp_reminders_file):
     added = add_reminder(
-        scheduler=mock_scheduler, agent=mock_bot,
-        message="Test", hour=9, minute=0, chat_id=-100,
+        scheduler=mock_scheduler,
+        agent=mock_bot,
+        message="Test",
+        hour=9,
+        minute=0,
+        chat_id=-100,
     )
     result = remove_reminder(mock_scheduler, added["id"])
     assert result["status"] == "removed"
@@ -140,13 +142,18 @@ def test_remove_reminder_not_found(mock_scheduler, tmp_reminders_file):
 
 def test_update_reminder_custom(mock_scheduler, mock_bot, tmp_reminders_file):
     added = add_reminder(
-        scheduler=mock_scheduler, agent=mock_bot,
-        message="Old message", hour=9, minute=0, chat_id=-100,
+        scheduler=mock_scheduler,
+        agent=mock_bot,
+        message="Old message",
+        hour=9,
+        minute=0,
+        chat_id=-100,
     )
     mock_scheduler.reset_mock()
 
     result = update_reminder(
-        scheduler=mock_scheduler, agent=mock_bot,
+        scheduler=mock_scheduler,
+        agent=mock_bot,
         reminder_id=added["id"],
         message="New message",
         hour=10,
@@ -160,7 +167,8 @@ def test_update_reminder_custom(mock_scheduler, mock_bot, tmp_reminders_file):
 
 def test_update_reminder_not_found(mock_scheduler, mock_bot, tmp_reminders_file):
     result = update_reminder(
-        scheduler=mock_scheduler, agent=mock_bot,
+        scheduler=mock_scheduler,
+        agent=mock_bot,
         reminder_id="nonexistent",
     )
     assert "error" in result
@@ -279,16 +287,25 @@ def test_load_custom_reminders_restores_jobs(tmp_reminders_file):
     """Verify load_custom_reminders reads JSON and registers each enabled reminder."""
     reminders = [
         {
-            "id": "r1", "chat_id": -100, "message": "First",
-            "schedule": {"type": "cron", "hour": 8, "minute": 0}, "enabled": True,
+            "id": "r1",
+            "chat_id": -100,
+            "message": "First",
+            "schedule": {"type": "cron", "hour": 8, "minute": 0},
+            "enabled": True,
         },
         {
-            "id": "r2", "chat_id": -100, "message": "Disabled",
-            "schedule": {"type": "cron", "hour": 9, "minute": 0}, "enabled": False,
+            "id": "r2",
+            "chat_id": -100,
+            "message": "Disabled",
+            "schedule": {"type": "cron", "hour": 9, "minute": 0},
+            "enabled": False,
         },
         {
-            "id": "r3", "chat_id": -100, "message": "Third",
-            "schedule": {"type": "cron", "hour": 10, "minute": 0}, "enabled": True,
+            "id": "r3",
+            "chat_id": -100,
+            "message": "Third",
+            "schedule": {"type": "cron", "hour": 10, "minute": 0},
+            "enabled": True,
         },
     ]
     Path(tmp_reminders_file).write_text(json.dumps(reminders))
@@ -349,7 +366,6 @@ async def test_scheduler_actually_fires_reminder(monkeypatch):
 @pytest.mark.asyncio
 async def test_morning_summary_uses_configured_timezone(monkeypatch):
     """Verify send_morning_summary uses TIMEZONE env var, not system time."""
-    from unittest.mock import call
     from datetime import datetime
     from zoneinfo import ZoneInfo
 
@@ -366,11 +382,18 @@ async def test_morning_summary_uses_configured_timezone(monkeypatch):
             return fake_now.astimezone(tz)
         return original_now(tz)
 
-    monkeypatch.setattr("sidekick.reminders.datetime", type("dt", (), {
-        "now": staticmethod(patched_now),
-        "fromisoformat": datetime.fromisoformat,
-        "strptime": datetime.strptime,
-    }))
+    monkeypatch.setattr(
+        "sidekick.reminders.datetime",
+        type(
+            "dt",
+            (),
+            {
+                "now": staticmethod(patched_now),
+                "fromisoformat": datetime.fromisoformat,
+                "strptime": datetime.strptime,
+            },
+        ),
+    )
 
     bot = MagicMock()
     bot.send_message = AsyncMock()
@@ -403,11 +426,18 @@ async def test_pre_event_check_uses_configured_timezone(monkeypatch):
             return fake_now.astimezone(tz)
         return original_now(tz)
 
-    monkeypatch.setattr("sidekick.reminders.datetime", type("dt", (), {
-        "now": staticmethod(patched_now),
-        "fromisoformat": datetime.fromisoformat,
-        "strptime": datetime.strptime,
-    }))
+    monkeypatch.setattr(
+        "sidekick.reminders.datetime",
+        type(
+            "dt",
+            (),
+            {
+                "now": staticmethod(patched_now),
+                "fromisoformat": datetime.fromisoformat,
+                "strptime": datetime.strptime,
+            },
+        ),
+    )
 
     bot = MagicMock()
     bot.send_message = AsyncMock()
