@@ -16,14 +16,16 @@ import aiohttp_jinja2
 import jinja2
 from aiohttp import web
 
+from ..calendar.chronary import ChronaryProvider
 from ..storage.sqlite_tasks import SQLiteTaskStore
-from .handlers import dashboard, health, reminders, tasks
+from .handlers import calendar_routes, dashboard, health, reminders, tasks
 
 
 def make_app(
     *,
     bot_data: dict[str, Any],
     task_store: SQLiteTaskStore | None = None,
+    calendar_provider: ChronaryProvider | None = None,
 ) -> web.Application:
     """Build a configured aiohttp Application for the dashboard.
 
@@ -35,6 +37,10 @@ def make_app(
     app = web.Application()
     app["bot_data"] = bot_data
     app["task_store"] = task_store if task_store is not None else SQLiteTaskStore()
+    # Calendar provider is constructed lazily — ChronaryProvider's __init__
+    # reads CHRONARY_* env vars and would fail in tests without them. The
+    # caller (production: bot.py; tests: fixture) passes one in explicitly.
+    app["calendar"] = calendar_provider
 
     templates_dir = Path(__file__).parent / "templates"
     aiohttp_jinja2.setup(app, loader=jinja2.FileSystemLoader(str(templates_dir)))
@@ -69,5 +75,10 @@ def make_app(
         name="tasks.clear_completed",
     )
     app.router.add_post("/tasks/{list_name}/delete", tasks.delete_list, name="tasks.delete_list")
+
+    app.router.add_get("/events", calendar_routes.index, name="calendar.index")
+    app.router.add_post("/events", calendar_routes.create, name="calendar.create")
+    app.router.add_post("/events/{id}", calendar_routes.update, name="calendar.update")
+    app.router.add_post("/events/{id}/delete", calendar_routes.delete, name="calendar.delete")
 
     return app
