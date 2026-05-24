@@ -53,6 +53,9 @@ logging.basicConfig(
     format="%(asctime)s %(levelname)s %(name)s — %(message)s",
     level=logging.INFO,
 )
+from .logging_setup import install_redaction_filter  # noqa: E402
+
+install_redaction_filter()
 logger = logging.getLogger(__name__)
 
 

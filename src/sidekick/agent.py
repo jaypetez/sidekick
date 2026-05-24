@@ -21,6 +21,7 @@ from mcp import ClientSession
 from telegram import Bot
 
 from .llm import LLMClient, build_llm_client
+from .logging_setup import safe_repr
 from .reminders import (
     add_reminder,
     get_all_reminders,
@@ -31,6 +32,19 @@ from .reminders import (
 logger = logging.getLogger(__name__)
 
 MAX_HISTORY_TURNS = 20  # max user+assistant pairs to keep per chat
+
+# Tools whose effects are irreversible. Currently used as documentation +
+# soft signal for log review; future work may add confirmation gating.
+# See docs/security.md ("Known limitations").
+DESTRUCTIVE_TOOLS = frozenset(
+    {
+        "delete_event",
+        "delete_task_list",
+        "delete_task_item",
+        "clear_completed_items",
+        "remove_reminder",
+    }
+)
 
 CONFIG_FILE = os.getenv(
     "CONFIG_FILE",
@@ -290,7 +304,7 @@ class SidekickAgent:
                 for block in response.content:
                     if block.type != "tool_use":
                         continue
-                    logger.info("Calling tool %s with args %s", block.name, block.input)
+                    self._log_tool_call(block.name, block.input)
 
                     is_error = False
                     if block.name in LOCAL_REMINDER_TOOLS:
@@ -379,6 +393,18 @@ class SidekickAgent:
     def _extract_text(self, content: list[Any]) -> str:
         parts = [block.text for block in content if hasattr(block, "text")]
         return "\n".join(parts).strip()
+
+    def _log_tool_call(self, name: str, args: object) -> None:
+        """Log a tool invocation. Tool name at INFO, argument payload at DEBUG.
+
+        Destructive tool calls are flagged at INFO so they're visible in
+        default log levels without exposing the raw argument payload.
+        """
+        if name in DESTRUCTIVE_TOOLS:
+            logger.info("Calling destructive tool %s", name)
+        else:
+            logger.info("Calling tool %s", name)
+        logger.debug("Tool %s args: %s", name, safe_repr(args))
 
     def _trim_history(self, history: list[dict[str, Any]]) -> None:
         """Keep history within MAX_HISTORY_TURNS pairs to avoid unbounded growth."""

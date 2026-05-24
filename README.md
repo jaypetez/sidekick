@@ -285,3 +285,13 @@ Branching, commit, and PR conventions live in [`.github/CONTRIBUTING.md`](.githu
 ## License
 
 [MIT](LICENSE).
+
+---
+
+## Security
+
+Sidekick is a single-tenant self-hosted bot. Defaults are closed: Telegram and Slack require explicit user allowlists, the web dashboard binds to `127.0.0.1:8080`, and CI runs `pip-audit`, `bandit`, and CodeQL on every PR.
+
+- Policy and how to report a vulnerability: [`.github/SECURITY.md`](.github/SECURITY.md)
+- Operator's guide (threat model, surface posture, checklist, known limitations): [`docs/security.md`](docs/security.md)
+
