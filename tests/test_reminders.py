@@ -9,6 +9,7 @@ from sidekick.reminders import (
     _format_time,
     _read_reminders_file,
     _register_job,
+    _REMINDER_CHAT_ID,
     _write_reminders_file,
     add_reminder,
     get_all_reminders,
@@ -200,11 +201,13 @@ async def test_send_custom_reminder_processes_through_agent(monkeypatch):
 
     await send_custom_reminder(agent, "What's on the calendar today?")
 
-    agent.process_message.assert_called_once_with(-1, "What's on the calendar today?")
+    agent.process_message.assert_called_once_with(
+        _REMINDER_CHAT_ID, "What's on the calendar today?"
+    )
     agent.bot.send_message.assert_called_once_with(
         chat_id=-100999, text="You have 3 events today.", parse_mode="Markdown"
     )
-    agent.clear_history.assert_called_once_with(-1)
+    agent.clear_history.assert_called_once_with(_REMINDER_CHAT_ID)
 
 
 @pytest.mark.asyncio
@@ -355,7 +358,7 @@ async def test_scheduler_actually_fires_reminder(monkeypatch):
     scheduler.shutdown(wait=False)
 
     assert agent.bot.send_message.call_count >= 1
-    agent.process_message.assert_called_with(-1, "Scheduler test")
+    agent.process_message.assert_called_with(_REMINDER_CHAT_ID, "Scheduler test")
 
 
 # -------------------------------------------------------------------

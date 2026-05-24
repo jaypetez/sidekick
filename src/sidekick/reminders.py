@@ -167,8 +167,10 @@ def _register_job(
 
 
 # Internal chat_id used for processing reminders through the agent.
-# Keeps reminder tool calls out of real user conversation history.
-_REMINDER_CHAT_ID = -1
+# Keeps reminder tool calls out of real user conversation history. Using a
+# non-numeric sentinel prevents collisions with real Telegram chat ids
+# (Telegram ids are always ints, often negative for groups).
+_REMINDER_CHAT_ID: str = "__sidekick_reminder__"
 
 
 async def send_custom_reminder(agent: "SidekickAgent", message: str) -> None:
