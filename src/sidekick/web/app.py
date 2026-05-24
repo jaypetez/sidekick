@@ -16,7 +16,7 @@ import aiohttp_jinja2
 import jinja2
 from aiohttp import web
 
-from .handlers import dashboard, health
+from .handlers import dashboard, health, reminders
 
 
 def make_app(*, bot_data: dict[str, Any]) -> web.Application:
@@ -36,5 +36,10 @@ def make_app(*, bot_data: dict[str, Any]) -> web.Application:
 
     app.router.add_get("/", dashboard.home, name="home")
     app.router.add_get("/health", health.health, name="health")
+
+    app.router.add_get("/reminders", reminders.index, name="reminders.index")
+    app.router.add_post("/reminders", reminders.create, name="reminders.create")
+    app.router.add_post("/reminders/{id}", reminders.update, name="reminders.update")
+    app.router.add_post("/reminders/{id}/delete", reminders.delete, name="reminders.delete")
 
     return app
