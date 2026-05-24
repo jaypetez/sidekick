@@ -1,0 +1,58 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 320" fill="none">
+  <!-- Left antenna -->
+  <path d="M200 140 Q180 80 140 40" stroke="#E74C3C" stroke-width="6" stroke-linecap="round" fill="none"/>
+  <circle cx="137" cy="37" r="8" fill="#E74C3C"/>
+  <!-- Right antenna -->
+  <path d="M400 140 Q420 80 460 40" stroke="#E74C3C" stroke-width="6" stroke-linecap="round" fill="none"/>
+  <circle cx="463" cy="37" r="8" fill="#E74C3C"/>
+
+  <!-- Left claw arm -->
+  <path d="M195 175 Q140 155 100 130" stroke="#E74C3C" stroke-width="8" stroke-linecap="round" fill="none"/>
+  <!-- Left claw -->
+  <ellipse cx="80" cy="115" rx="30" ry="20" fill="#E74C3C" transform="rotate(-30 80 115)"/>
+  <path d="M62 100 Q55 85 45 80" stroke="#E74C3C" stroke-width="6" stroke-linecap="round" fill="none"/>
+  <path d="M62 100 Q50 100 40 95" stroke="#E74C3C" stroke-width="6" stroke-linecap="round" fill="none"/>
+
+  <!-- Right claw arm -->
+  <path d="M405 175 Q460 155 500 130" stroke="#E74C3C" stroke-width="8" stroke-linecap="round" fill="none"/>
+  <!-- Right claw -->
+  <ellipse cx="520" cy="115" rx="30" ry="20" fill="#E74C3C" transform="rotate(30 520 115)"/>
+  <path d="M538 100 Q545 85 555 80" stroke="#E74C3C" stroke-width="6" stroke-linecap="round" fill="none"/>
+  <path d="M538 100 Q550 100 560 95" stroke="#E74C3C" stroke-width="6" stroke-linecap="round" fill="none"/>
+
+  <!-- Body -->
+  <ellipse cx="300" cy="190" rx="115" ry="70" fill="#E74C3C"/>
+  <!-- Body shading -->
+  <ellipse cx="300" cy="185" rx="95" ry="55" fill="#C0392B"/>
+  <!-- Body segments -->
+  <path d="M250 145 Q300 135 350 145" stroke="#A93226" stroke-width="2" fill="none"/>
+  <path d="M235 160 Q300 148 365 160" stroke="#A93226" stroke-width="2" fill="none"/>
+  <path d="M225 178 Q300 165 375 178" stroke="#A93226" stroke-width="2" fill="none"/>
+
+  <!-- Eyes -->
+  <circle cx="265" cy="175" r="14" fill="white"/>
+  <circle cx="335" cy="175" r="14" fill="white"/>
+  <circle cx="268" cy="173" r="7" fill="#2C3E50"/>
+  <circle cx="338" cy="173" r="7" fill="#2C3E50"/>
+  <circle cx="270" cy="171" r="3" fill="white"/>
+  <circle cx="340" cy="171" r="3" fill="white"/>
+
+  <!-- Smile -->
+  <path d="M275 200 Q300 218 325 200" stroke="#A93226" stroke-width="3" stroke-linecap="round" fill="none"/>
+
+  <!-- Legs left -->
+  <path d="M210 210 Q180 240 160 260" stroke="#E74C3C" stroke-width="5" stroke-linecap="round" fill="none"/>
+  <path d="M200 225 Q170 250 145 268" stroke="#E74C3C" stroke-width="5" stroke-linecap="round" fill="none"/>
+  <path d="M195 240 Q168 260 140 275" stroke="#E74C3C" stroke-width="5" stroke-linecap="round" fill="none"/>
+
+  <!-- Legs right -->
+  <path d="M390 210 Q420 240 440 260" stroke="#E74C3C" stroke-width="5" stroke-linecap="round" fill="none"/>
+  <path d="M400 225 Q430 250 455 268" stroke="#E74C3C" stroke-width="5" stroke-linecap="round" fill="none"/>
+  <path d="M405 240 Q432 260 460 275" stroke="#E74C3C" stroke-width="5" stroke-linecap="round" fill="none"/>
+
+  <!-- Tail -->
+  <path d="M300 258 Q300 280 290 295 Q280 305 300 310 Q320 305 310 295 Q300 280 300 258" fill="#E74C3C"/>
+
+  <!-- Text -->
+  <text x="300" y="310" text-anchor="middle" font-family="'Segoe UI', 'Helvetica Neue', Arial, sans-serif" font-size="11" font-weight="600" letter-spacing="6" fill="#7F8C8D">F A M L O B S T E R</text>
+</svg>
