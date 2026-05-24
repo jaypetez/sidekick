@@ -59,6 +59,46 @@ install_redaction_filter()
 logger = logging.getLogger(__name__)
 
 
+# Environment variables propagated to the MCP subprocess. The subprocess
+# only talks to Chronary + SQLite — it does not call the LLM, the chat
+# platforms, or the web dashboard, so secrets for those services are
+# deliberately withheld. Process-runtime vars (PATH, locale, HOME) stay
+# because the interpreter itself needs them.
+_MCP_ENV_ALLOWLIST: frozenset[str] = frozenset(
+    {
+        # process runtime
+        "PATH",
+        "PYTHONUNBUFFERED",
+        "PYTHONIOENCODING",
+        "LANG",
+        "LC_ALL",
+        "HOME",
+        "USERPROFILE",
+        "APPDATA",
+        "LOCALAPPDATA",
+        "TEMP",
+        "TMP",
+        # app-specific (Chronary + SQLite + timezone + paths)
+        "CHRONARY_API_KEY",
+        "CHRONARY_AGENT_ID",
+        "CHRONARY_CALENDAR_ID",
+        "TIMEZONE",
+        "SIDEKICK_DB_PATH",
+        "SIDEKICK_CONFIG_DIR",
+    }
+)
+
+
+def _build_mcp_env() -> dict[str, str]:
+    """Return a scoped env dict for the MCP subprocess.
+
+    Filters out unrelated secrets (TELEGRAM_BOT_TOKEN, SLACK_*_TOKEN,
+    ANTHROPIC_API_KEY, SIDEKICK_WEB_AUTH_TOKEN, ...) so a compromise of
+    the MCP subprocess cannot exfiltrate them.
+    """
+    return {k: v for k, v in os.environ.items() if k in _MCP_ENV_ALLOWLIST}
+
+
 # ---------------------------------------------------------------------------
 # Telegram handlers
 # ---------------------------------------------------------------------------
@@ -179,7 +219,7 @@ async def _bootstrap_services(bot_data: dict[str, Any], bot: Bot | None) -> None
     params = StdioServerParameters(
         command=sys.executable,
         args=["-m", "sidekick.mcp_server"],
-        env=dict(os.environ),
+        env=_build_mcp_env(),
     )
 
     session_ready = asyncio.Event()

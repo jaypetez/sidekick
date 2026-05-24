@@ -73,6 +73,12 @@ def _write_config(config: dict[str, Any]) -> None:
     path = Path(CONFIG_FILE)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(config, indent=2))
+    # Personality config may contain user-customized prompt text; restrict
+    # to owner read/write. chmod's group/other bits are a no-op on Windows.
+    try:
+        os.chmod(path, 0o600)
+    except OSError:
+        logger.exception("Failed to chmod config file %s", path)
 
 
 SYSTEM_PROMPT = """You are Sidekick, a friendly personal assistant bot that manages \
