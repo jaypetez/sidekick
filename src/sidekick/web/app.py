@@ -9,6 +9,7 @@ event loop responsive — the same pattern ``MCPServer._dispatch`` uses.
 
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import Any
 
@@ -29,6 +30,25 @@ from .handlers import (
 )
 
 
+@web.middleware
+async def _no_cache_html_middleware(
+    request: web.Request,
+    handler: Callable[[web.Request], Awaitable[web.StreamResponse]],
+) -> web.StreamResponse:
+    """Tell browsers not to cache HTML responses.
+
+    The dashboard's state (task counts, reminder list, agent status) changes
+    constantly — a cached page is misleading. Static assets under /static/
+    are not affected; they can stay cached.
+    """
+    response = await handler(request)
+    content_type = response.headers.get("Content-Type", "")
+    if content_type.startswith("text/html"):
+        response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
+        response.headers["Pragma"] = "no-cache"
+    return response
+
+
 def make_app(
     *,
     bot_data: dict[str, Any],
@@ -42,7 +62,7 @@ def make_app(
     dedicated SQLite connection for the web layer — multiple readers /
     one writer is fine under WAL.
     """
-    app = web.Application()
+    app = web.Application(middlewares=[_no_cache_html_middleware])
     app["bot_data"] = bot_data
     app["task_store"] = task_store if task_store is not None else SQLiteTaskStore()
     # Calendar provider is constructed lazily — ChronaryProvider's __init__
