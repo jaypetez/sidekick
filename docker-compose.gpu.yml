@@ -1,0 +1,30 @@
+# NVIDIA GPU override for the ollama service.
+#
+# Activate by adding `-f docker-compose.gpu.yml` to your compose command:
+#
+#   docker compose -f docker-compose.yml -f docker-compose.gpu.yml \
+#                  --profile ollama up -d
+#
+# Prerequisites:
+#   - NVIDIA driver installed on the host (`nvidia-smi` must work outside Docker)
+#   - nvidia-container-toolkit installed and configured
+#     (https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html)
+#   - On Docker Desktop for Windows: WSL2 backend + the Windows-side NVIDIA driver.
+#     Do NOT install a driver inside WSL.
+#
+# Verify after `up -d`:
+#   docker compose exec ollama nvidia-smi
+#
+# This file only adds the GPU reservation — the base ollama service still
+# lives in docker-compose.yml. The `count: all` line claims every visible
+# GPU; restrict it (`count: 1`) if you want to keep some for other workloads.
+
+services:
+  ollama:
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]

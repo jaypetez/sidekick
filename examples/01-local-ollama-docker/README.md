@@ -79,25 +79,37 @@ Open the **Tasks** page in the dashboard while you do this and you'll see the sa
 
 ## GPU passthrough (NVIDIA)
 
-The default `docker-compose.yml` keeps GPU off so it works on machines without one. To use your GPU, uncomment the `deploy:` block in `docker-compose.yml` under the `ollama` service:
+The base `docker-compose.yml` keeps GPU off so it works on machines without one. To use your GPU, layer `docker-compose.gpu.yml` on top:
 
-```yaml
-deploy:
-  resources:
-    reservations:
-      devices:
-        - driver: nvidia
-          count: all
-          capabilities: [gpu]
+```bash
+docker compose -f docker-compose.yml -f docker-compose.gpu.yml \
+               --profile ollama up -d
 ```
 
-Then bounce the stack: `docker compose --profile ollama down && docker compose --profile ollama up -d`.
+That's the only change — same model, same chat URL, same volumes. The override adds an NVIDIA `deploy.resources.reservations.devices` block to the `ollama` service.
 
-Verify the GPU is in use:
+**Prerequisites**
+
+- NVIDIA driver installed on the host: `nvidia-smi` must work outside Docker.
+- [nvidia-container-toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html) installed and configured for your container runtime.
+- **Docker Desktop on Windows**: enable the WSL2 backend, install the NVIDIA driver on **Windows**, not inside WSL.
+
+**Verify the GPU is in use**
 
 ```bash
 docker compose exec ollama nvidia-smi
 ```
+
+You should see your GPU listed with memory in use once a chat turn has loaded the model. If `nvidia-smi` fails *inside* the container but works on the host, the container-toolkit step above didn't land.
+
+**Pin VRAM budget per turn (optional)**
+
+If the model is bigger than your VRAM, Ollama will spill some layers to CPU automatically. To tell it exactly how many layers to keep on GPU, open the dashboard's **Settings** page and set:
+
+- **GPU layers (num_gpu)** — `999` to force every layer onto GPU, or a smaller number to leave headroom for other workloads. Leave blank for Ollama's auto-detect.
+- **Context tokens (num_ctx)** — bigger context = more VRAM. Drop this if you're running close to the limit.
+
+Changes apply immediately — no restart.
 
 ## Picking a different model
 
