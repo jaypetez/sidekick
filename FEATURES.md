@@ -6,13 +6,44 @@ Ideas for future bot capabilities, roughly ordered by usefulness and ease of imp
 
 ## ~~🛒 Task Lists (Groceries, To-Do, and More)~~ ✅ Done
 
-**Status:** Shipped — Google Tasks integration with unlimited named lists. Create store-specific grocery lists (Costco, Trader Joe's), project lists, to-do lists, or any topic-based list through natural language. Eight MCP tools: `list_task_lists`, `list_tasks`, `add_tasks`, `complete_task`, `delete_task`, `clear_completed`, `delete_task_list`, `rename_task_list`. Lists are auto-created when you add tasks to a new name.
+**Status:** Shipped — local SQLite store with unlimited named lists. Create store-specific grocery lists (Costco, Trader Joe's), project lists, to-do lists, or any topic-based list through natural language. Eight MCP tools: `list_task_lists`, `list_tasks`, `add_tasks`, `complete_task`, `delete_task`, `clear_completed`, `delete_task_list`, `rename_task_list`. Lists are auto-created when you add tasks to a new name.
 
 ---
 
 ## ~~⏰ Scheduled Reminders~~ ✅ Done
 
-**Status:** Shipped — Users can add, update, list, and remove recurring reminders through chat. Four local tools: `list_reminders`, `add_reminder`, `update_reminder`, `remove_reminder`. Custom reminders persist to `~/.config/sidekick/reminders.json` and restore on restart. Built-in morning summary and pre-event alerts can be modified or disabled via chat.
+**Status:** Shipped — users can add, update, list, and remove recurring reminders through chat. Four local tools: `list_reminders`, `add_reminder`, `update_reminder`, `remove_reminder`. Custom reminders persist to `~/.config/sidekick/reminders.json` and restore on restart. Built-in morning summary and pre-event alerts can be modified or disabled via chat.
+
+---
+
+## ~~📅 Calendar~~ ✅ Done — on Chronary.ai
+
+**Status:** Shipped — calendar lives on Chronary.ai via the official Python SDK. Four MCP tools: `list_events`, `create_event`, `update_event`, `delete_event`. First-run bootstrap is `sidekick-init`.
+
+Open follow-ups:
+- **Recurring events.** Chronary's REST surface doesn't document RRULE; the bot creates individual instances when asked for "every X".
+- **`location` and `attendees`.** Not first-class fields in Chronary — stashed in event `metadata`. Round-trips correctly on list/get.
+
+---
+
+## ~~💬 Multi-platform chat~~ ✅ Done — Telegram + Slack
+
+**Status:** Shipped — Slack adapter runs concurrently with Telegram when `SLACK_BOT_TOKEN` and `SLACK_APP_TOKEN` are set. `ChatPlatform` ABC ready for a WhatsApp adapter when needed.
+
+Open follow-ups:
+- **Reminders on Slack.** Morning summary and pre-event check still fire only on Telegram. Multi-platform reminder delivery is the natural next step — extend `REMINDER_CHAT_ID` to a comma-separated `tg:…,sl:…` list.
+
+---
+
+## ~~🤖 Local LLM (Ollama)~~ ✅ Done
+
+**Status:** Shipped — set `LLM_PROVIDER=ollama` and the bot routes through a local Ollama server. Recommended tool-capable models: `llama3.1:8b`, `qwen2.5:7b`. Tool-use reliability is materially below Claude's on multi-tool plans — acceptable for hobby/offline use.
+
+---
+
+## ~~🐳 Docker self-hosting~~ ✅ Done
+
+**Status:** Shipped — `docker compose up` brings up the bot. Ollama service is gated behind the `ollama` profile so users on the Anthropic path don't pull a 5GB image they won't run. NVIDIA GPU passthrough scaffolded as commented config.
 
 ---
 
@@ -57,17 +88,13 @@ When you ask about events, Claude automatically combines the answers:
 - No API key needed — Open-Meteo is completely free
 - Forecasts available 7 days out
 
-### Future enhancements (not in initial build)
-- Morning summary auto-includes weather for outdoor-sounding events (sport, game, practice, park, etc.)
-- Hourly forecasts for specific event times (initial build is daily high/low/conditions)
-
 ---
 
 ## 🎂 Birthday & Anniversary Reminders
 **Difficulty:** Easy
-**Backend:** Google Calendar (already connected)
+**Backend:** Chronary calendar (already connected)
 
-A dedicated "Birthdays" calendar (or labels in the main calendar) that the bot monitors. Sends a morning reminder on the day and a heads-up a few days before.
+A dedicated "Birthdays" calendar in Chronary that the bot monitors. Sends a morning reminder on the day and a heads-up a few days before.
 
 **Example messages:**
 - "When is mom's birthday?"
@@ -75,7 +102,7 @@ A dedicated "Birthdays" calendar (or labels in the main calendar) that the bot m
 - "What family birthdays are coming up this month?"
 
 **Implementation notes:**
-- Could use a separate Google Calendar named "Birthdays" — set `BIRTHDAY_CALENDAR_ID` in `.env`
+- Create a second Chronary calendar named "Birthdays" — set `BIRTHDAY_CALENDAR_ID` in `.env`
 - Existing `list_events` and `create_event` tools already handle this
 - Add a new APScheduler job: weekly scan for birthdays in the next 7 days, send a heads-up
 - No new tools needed — just scheduler logic
@@ -84,7 +111,7 @@ A dedicated "Birthdays" calendar (or labels in the main calendar) that the bot m
 
 ## 🍽️ Meal Planning
 **Difficulty:** Medium
-**Backend:** Google Sheets
+**Backend:** Local SQLite (extend the existing DB)
 
 Plan what's for dinner each day of the week. Family can check the plan, suggest changes, and the bot can automatically build a grocery list from the meal plan.
 
@@ -95,82 +122,37 @@ Plan what's for dinner each day of the week. Family can check the plan, suggest 
 - "What are we having this week?"
 
 **Implementation notes:**
-- Google Sheets as the backend — one sheet per week, columns for each day
-- Needs Google Sheets API enabled + `spreadsheets` scope added to `auth.py`
+- New tables in the existing `sidekick.db` — one row per (week_start, day_of_week, meal_name)
 - Tools: `get_meal_plan`, `set_meal`, `generate_grocery_list_from_meals`
-- The grocery list generation is a great Claude use case — it reasons about ingredients
+- The grocery list generation is a great Claude use case — it reasons about ingredients and writes into the existing task store
 
 ---
 
 ## 📍 Location Check-In
 **Difficulty:** Easy
-**Backend:** None (Telegram-native)
+**Backend:** None (chat-native)
 
 A status board. No GPS or tracking — people post their status as plain text and the bot remembers it. Anyone can ask where everyone is without scrolling back through the chat.
 
 **Example messages:**
 - "I'm leaving school now"
 - "Heading to practice, back at 6"
-- "Running 20 min late"
 - "Where's Alex?" → "Alex said he was leaving school — 22 minutes ago"
-- "Where is everyone?" → Bot replies with each person's last check-in and timestamp
-
-**Optional: Telegram native location sharing**
-If someone shares their live location in the chat, the bot can log it as a check-in ("Alex is near the school"). Opt-in only — no automatic tracking.
-
-**Optional: Expected check-in alerts**
-Set a deadline for someone to check in: "remind me if Alex hasn't checked in by 3:30pm." The bot pings the group if the check-in never comes.
+- "Where is everyone?" → Bot replies with each person's last check-in
 
 **Implementation notes:**
-- In-memory dict keyed by Telegram username: `{name: {status, timestamp}}`
+- New SQLite table: `checkins(user_id, status, timestamp)`
 - Bot watches for messages that look like check-ins (uses Claude to classify) vs regular conversation
 - Or a `/checkin` command for explicit status updates
-- No external API needed — pure bot logic
-- Statuses reset on bot restart (acceptable)
-
----
-
-## 💰 Budget Tracker
-**Difficulty:** Medium
-**Backend:** Google Sheets
-
-Log expenses by category and get summaries. Useful for tracking how much is being spent on groceries, gas, activities, etc.
-
-**Example messages:**
-- "Log $47 at Costco under groceries"
-- "How much have we spent on groceries this month?"
-- "Show me this month's spending by category"
-- "We spent $120 on baseball gear"
-
-**Implementation notes:**
-- Google Sheets as the ledger — one row per expense, columns for date/amount/category/note
-- Tools: `log_expense`, `get_spending_summary`, `get_expenses_by_category`
-- Needs Google Sheets API + scope (same as meal planning)
-
----
-
-## 📬 Broadcast Messages
-**Difficulty:** Easy
-**Backend:** Telegram (already connected)
-
-Send an announcement to the whole group from any member via the bot, with a consistent format so it's clear it's an "official" notice.
-
-**Example messages:**
-- "Announce that dinner is at 6:30 tonight"
-- "Send a reminder that grandma's visit is this weekend"
-
-**Implementation notes:**
-- No new API needed — bot already sends to `REMINDER_CHAT_ID`
-- Just a new bot command or Claude tool: format the message prominently and post it
-- Could include a `/announce` command as a shortcut
+- Works across both Telegram and Slack now that platforms are abstracted
 
 ---
 
 ## 🔑 Quick Notes / Wiki
 **Difficulty:** Easy
-**Backend:** Google Docs or a Google Sheet
+**Backend:** Local SQLite
 
-A place to store frequently referenced info: wifi password, alarm code, vet's phone number, contact list, etc. Ask the bot and it looks it up.
+A place to store frequently referenced info: wifi password, alarm code, vet's phone number, contact list, etc.
 
 **Example messages:**
 - "What's the wifi password?"
@@ -178,22 +160,33 @@ A place to store frequently referenced info: wifi password, alarm code, vet's ph
 - "Save the new garage code as 4821"
 
 **Implementation notes:**
-- A single Google Sheet with two columns: key and value
+- New `notes(key, value)` table in `sidekick.db`
 - Tools: `lookup_note`, `save_note`, `list_notes`
-- Simple but surprisingly useful
 
 ---
 
-## Implementation Priority
+## 📲 WhatsApp adapter
+**Difficulty:** Medium
+**Backend:** Twilio API for WhatsApp OR Meta WhatsApp Cloud API
+
+The `ChatPlatform` abstraction is ready for a third adapter. Twilio is easier to set up; Meta Cloud is cheaper at scale. Pick when there's actual demand.
+
+---
+
+## Implementation priority
 
 | # | Feature | Status |
 |---|---------|--------|
-| 1 | Task lists (groceries, to-do, and more) | ✅ Done |
+| 1 | Task lists | ✅ Done |
 | 2 | Scheduled reminders | ✅ Done |
-| 3 | Weather | 🔜 Next |
-| 4 | Birthday reminders | Planned — reuses existing calendar tools |
-| 5 | Quick notes / wiki | Planned — simple, high daily utility |
-| 6 | Meal planning | Planned — medium effort, unlocks grocery list generation |
-| 7 | Budget tracker | Planned — needs Sheets API |
-| 8 | Broadcast messages | Planned — trivial to add |
-| 9 | Location check-in | Planned — nice to have, no external API |
+| 3 | Calendar on Chronary | ✅ Done |
+| 4 | Slack adapter | ✅ Done |
+| 5 | Local LLM (Ollama) | ✅ Done |
+| 6 | Docker self-hosting | ✅ Done |
+| 7 | Multi-platform reminders | Next up — small follow-on to Slack adapter |
+| 8 | Weather | Planned — easy, high daily utility |
+| 9 | Birthday reminders | Planned — reuses existing calendar tools |
+| 10 | Quick notes / wiki | Planned |
+| 11 | Meal planning | Planned |
+| 12 | Location check-in | Planned |
+| 13 | WhatsApp adapter | When demand justifies it |
