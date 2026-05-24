@@ -107,10 +107,17 @@ def _read_reminders_file() -> list[dict[str, Any]]:
 
 
 def _write_reminders_file(reminders: list[dict[str, Any]]) -> None:
-    """Write reminders list to JSON file."""
+    """Write reminders list to JSON file with restrictive permissions."""
     path = Path(REMINDERS_FILE)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(reminders, indent=2))
+    # Restrict to owner read/write only — file may contain chat ids and
+    # other sensitive routing data. chmod is a no-op on Windows for the
+    # group/other bits but is harmless.
+    try:
+        os.chmod(path, 0o600)
+    except OSError:
+        logger.exception("Failed to chmod reminders file %s", path)
 
 
 def load_custom_reminders(scheduler: AsyncIOScheduler, agent: "SidekickAgent") -> None:
