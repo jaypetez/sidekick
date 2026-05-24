@@ -3,35 +3,97 @@
 {% block content %}
 <h1>Settings</h1>
 
-<section>
+<section class="settings-card">
   <h2>Personality</h2>
-  <p>Current: {{ personality if personality else 'default (friendly assistant)' }}</p>
-  <form method="post" action="/settings/personality">
-    <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+  <p>Current: <span id="personality-current">…</span></p>
+  <form id="personality-form">
     <div class="field">
-      <label>Style</label>
-      <input name="style" list="presets" placeholder="e.g. pirate, formal, butler, or freeform">
-      <datalist id="presets">
-        <option value="default">
-        {% for preset in presets %}
-        <option value="{{ preset }}">
-        {% endfor %}
-      </datalist>
+      <label for="personality-style">Style</label>
+      <input id="personality-style" name="style" list="presets" placeholder="e.g. pirate, formal, butler, or freeform">
+      <datalist id="presets"></datalist>
     </div>
-    <button type="submit">Apply</button>
+    <div class="settings-actions">
+      <button type="submit">Apply</button>
+      <span id="personality-status" class="form-status"></span>
+    </div>
   </form>
 </section>
 
-<section style="margin-top:32px">
-  <h2>Environment</h2>
-  <table>
-    <thead><tr><th>Variable</th><th>Value</th></tr></thead>
-    <tbody>
-      {% for key, value in env.items() %}
-      <tr><td><code>{{ key }}</code></td><td>{{ value if value else '—' }}</td></tr>
-      {% endfor %}
-    </tbody>
-  </table>
-  <p style="color:var(--muted); margin-top:8px">Tokens and API keys are intentionally not shown.</p>
-</section>
+<form id="settings-form" class="settings-card" style="margin-top:24px">
+  <h2>LLM provider</h2>
+  <div class="field">
+    <div class="radio-group">
+      <label><input type="radio" name="LLM_PROVIDER" value="anthropic"> Anthropic (Claude, cloud)</label>
+      <label><input type="radio" name="LLM_PROVIDER" value="ollama"> Ollama (local)</label>
+    </div>
+  </div>
+
+  <fieldset data-provider="anthropic">
+    <legend>Anthropic</legend>
+    <div class="field">
+      <label for="anthropic-key">API key</label>
+      <input id="anthropic-key" type="password" name="ANTHROPIC_API_KEY" autocomplete="off" placeholder="(unset)">
+      <p class="hint">
+        <span data-secret-state="ANTHROPIC_API_KEY">not set</span>
+        · leave blank to keep existing ·
+        <button type="button" class="secondary inline" data-clear="ANTHROPIC_API_KEY">Clear</button>
+      </p>
+    </div>
+    <div class="field">
+      <label for="claude-model">Claude model</label>
+      <input id="claude-model" type="text" name="CLAUDE_MODEL" placeholder="claude-haiku-4-5-20251001">
+    </div>
+  </fieldset>
+
+  <fieldset data-provider="ollama" hidden>
+    <legend>Ollama</legend>
+    <div class="field">
+      <label for="ollama-base-url">Base URL</label>
+      <input id="ollama-base-url" type="text" name="OLLAMA_BASE_URL" placeholder="http://localhost:11434">
+    </div>
+    <div class="field">
+      <label for="ollama-model">Model</label>
+      <input id="ollama-model" type="text" name="OLLAMA_MODEL" placeholder="llama3.1:8b">
+    </div>
+    <div class="field">
+      <label for="ollama-num-ctx">Context tokens (num_ctx)</label>
+      <input id="ollama-num-ctx" type="number" name="OLLAMA_NUM_CTX" placeholder="4096" min="1">
+    </div>
+    <div class="field">
+      <label for="ollama-num-gpu">GPU layers (num_gpu)</label>
+      <input id="ollama-num-gpu" type="number" name="OLLAMA_NUM_GPU" placeholder="-1 = auto · 999 = max · 0 = CPU">
+      <p class="hint">Leave blank for Ollama's auto-detect. 999 forces all layers to GPU; 0 disables GPU.</p>
+    </div>
+    <div class="field">
+      <label for="ollama-keep-alive">Keep alive</label>
+      <input id="ollama-keep-alive" type="text" name="OLLAMA_KEEP_ALIVE" placeholder="5m">
+      <p class="hint">How long Ollama holds the model in memory after a request (e.g. <code>5m</code>, <code>1h</code>).</p>
+    </div>
+  </fieldset>
+
+  <h2 style="margin-top:24px">General</h2>
+  <div class="field">
+    <label for="timezone">Timezone</label>
+    <input id="timezone" type="text" name="TIMEZONE" placeholder="America/Chicago">
+    <p class="hint">Applies on next bot restart.</p>
+  </div>
+  <div class="field">
+    <label for="morning-time">Morning reminder time</label>
+    <input id="morning-time" type="text" name="MORNING_REMINDER_TIME" placeholder="07:30">
+    <p class="hint">HH:MM 24-hour. Applies on next bot restart.</p>
+  </div>
+  <div class="field">
+    <label for="pre-event-minutes">Pre-event reminder (minutes)</label>
+    <input id="pre-event-minutes" type="number" name="PRE_EVENT_REMINDER_MINUTES" min="0" placeholder="30">
+    <p class="hint">Applies on next bot restart.</p>
+  </div>
+
+  <div class="settings-actions">
+    <button type="submit">Save changes</button>
+    <button type="button" id="test-llm" class="secondary">Test LLM</button>
+    <span id="settings-status" class="form-status"></span>
+  </div>
+</form>
+
+<script type="module" src="/static/js/pages/settings.js"></script>
 {% endblock %}
