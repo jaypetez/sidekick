@@ -12,18 +12,18 @@ import asyncio
 import base64
 import json
 import os
-from datetime import datetime, timezone
-from zoneinfo import ZoneInfo
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
-from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 from mcp.server import Server
 import mcp.types as types
+
+from .calendar.google import GoogleCalendarProvider
+from .storage.google_tasks import GoogleTasksStore
 
 SCOPES = [
     "https://www.googleapis.com/auth/calendar",
@@ -39,8 +39,30 @@ class MCPServer:
         self.tasks = None
         self.calendar_id = os.getenv("GOOGLE_CALENDAR_ID", "primary")
         self.timezone = os.getenv("TIMEZONE", "America/Chicago")
+        self._calendar = None      # set lazily via the `calendar` property
+        self._tasks_store = None   # set lazily via the `tasks_store` property
         self.server = Server("sidekick")
         self._register_tools()
+
+    # ------------------------------------------------------------------
+    # Provider accessors — lazily constructed so tests that inject raw
+    # Google service mocks (server.service = ..., server.tasks = ...)
+    # without calling build_google_service() still work.
+    # ------------------------------------------------------------------
+
+    @property
+    def calendar(self) -> GoogleCalendarProvider | None:
+        if self._calendar is None and self.service is not None:
+            self._calendar = GoogleCalendarProvider(
+                self.service, self.calendar_id, self.timezone
+            )
+        return self._calendar
+
+    @property
+    def tasks_store(self) -> GoogleTasksStore | None:
+        if self._tasks_store is None and self.tasks is not None:
+            self._tasks_store = GoogleTasksStore(self.tasks)
+        return self._tasks_store
 
     # ------------------------------------------------------------------
     # Google Auth
@@ -384,110 +406,25 @@ class MCPServer:
         return {"error": f"Unknown tool: {name}"}
 
     # ------------------------------------------------------------------
-    # Google Calendar operations (synchronous, run in executor)
+    # Tool implementations — delegate to providers (calendar, tasks_store).
+    # Helper methods (_find_task_list etc.) remain as thin shims so existing
+    # tests that patch MCPServer internals keep working.
     # ------------------------------------------------------------------
 
     def _list_events(self, args: dict) -> list:
-        start_date = args["start_date"]
-        end_date = args["end_date"]
-        max_results = args.get("max_results", 20)
-
-        # Convert date strings to RFC3339 timestamps in the user's timezone
-        tz = ZoneInfo(self.timezone)
-        start_dt = datetime.strptime(start_date, "%Y-%m-%d").replace(tzinfo=tz)
-        end_dt = datetime.strptime(end_date, "%Y-%m-%d").replace(
-            hour=23, minute=59, second=59, tzinfo=tz
-        )
-        time_min = start_dt.isoformat()
-        time_max = end_dt.isoformat()
-
-        result = (
-            self.service.events()
-            .list(
-                calendarId=self.calendar_id,
-                timeMin=time_min,
-                timeMax=time_max,
-                maxResults=max_results,
-                singleEvents=True,
-                orderBy="startTime",
-            )
-            .execute()
-        )
-        return [self._event_to_dict(e) for e in result.get("items", [])]
+        return self.calendar.list_events(args)
 
     def _create_event(self, args: dict) -> dict:
-        start = args["start_datetime"]
-        end = args["end_datetime"]
-
-        # Detect all-day events (no time component)
-        if "T" in start:
-            start_obj = {"dateTime": start}
-            end_obj = {"dateTime": end}
-        else:
-            start_obj = {"date": start}
-            end_obj = {"date": end}
-
-        body: dict = {
-            "summary": args["summary"],
-            "start": start_obj,
-            "end": end_obj,
-        }
-        if "description" in args:
-            body["description"] = args["description"]
-        if "location" in args:
-            body["location"] = args["location"]
-        if "attendees" in args:
-            body["attendees"] = [{"email": e} for e in args["attendees"]]
-
-        event = (
-            self.service.events()
-            .insert(calendarId=self.calendar_id, body=body)
-            .execute()
-        )
-        return {
-            "id": event["id"],
-            "summary": event.get("summary"),
-            "htmlLink": event.get("htmlLink"),
-        }
+        return self.calendar.create_event(args)
 
     def _update_event(self, args: dict) -> dict:
-        event_id = args["event_id"]
-        event = (
-            self.service.events()
-            .get(calendarId=self.calendar_id, eventId=event_id)
-            .execute()
-        )
-
-        if "summary" in args:
-            event["summary"] = args["summary"]
-        if "description" in args:
-            event["description"] = args["description"]
-        if "location" in args:
-            event["location"] = args["location"]
-        if "start_datetime" in args:
-            start = args["start_datetime"]
-            event["start"] = (
-                {"dateTime": start} if "T" in start else {"date": start}
-            )
-        if "end_datetime" in args:
-            end = args["end_datetime"]
-            event["end"] = {"dateTime": end} if "T" in end else {"date": end}
-
-        updated = (
-            self.service.events()
-            .update(calendarId=self.calendar_id, eventId=event_id, body=event)
-            .execute()
-        )
-        return self._event_to_dict(updated)
+        return self.calendar.update_event(args)
 
     def _delete_event(self, args: dict) -> dict:
-        event_id = args["event_id"]
-        self.service.events().delete(
-            calendarId=self.calendar_id, eventId=event_id
-        ).execute()
-        return {"status": "deleted", "event_id": event_id}
+        return self.calendar.delete_event(args)
 
     def _send_email(self, args: dict) -> dict:
+        # Stays inline — removed entirely in step 5.
         message = MIMEMultipart()
         message["to"] = args["to"]
         message["subject"] = args["subject"]
@@ -499,106 +436,42 @@ class MCPServer:
         return {"status": "sent", "message_id": result.get("id")}
 
     # ------------------------------------------------------------------
-    # Google Tasks operations (synchronous, run in executor)
+    # Task helpers — delegated. Kept on MCPServer so tests can monkey-patch
+    # or directly invoke them by name.
     # ------------------------------------------------------------------
 
     def _find_task_list(self, list_name: str) -> str | None:
-        """Find a task list by name (case-insensitive). Returns the list ID or None."""
-        result = self.tasks.tasklists().list().execute()
-        for tl in result.get("items", []):
-            if tl["title"].lower() == list_name.lower():
-                return tl["id"]
-        return None
+        return self.tasks_store.find_task_list(list_name)
 
     def _get_or_create_task_list(self, list_name: str) -> str:
-        """Find a task list by name, or create it. Returns the list ID."""
-        list_id = self._find_task_list(list_name)
-        if list_id:
-            return list_id
-        new_list = self.tasks.tasklists().insert(
-            body={"title": list_name}
-        ).execute()
-        return new_list["id"]
+        return self.tasks_store.get_or_create_task_list(list_name)
 
     def _find_task_by_title(self, list_id: str, title: str) -> dict | None:
-        """Find the first incomplete task matching title (case-insensitive partial match)."""
-        result = self.tasks.tasks().list(
-            tasklist=list_id, showCompleted=False
-        ).execute()
-        title_lower = title.lower()
-        for task in result.get("items", []):
-            if title_lower in task.get("title", "").lower():
-                return task
-        return None
+        return self.tasks_store.find_task_by_title(list_id, title)
 
     def _list_tasks(self, args: dict) -> list:
-        list_id = self._get_or_create_task_list(args["list_name"])
-        result = self.tasks.tasks().list(
-            tasklist=list_id, showCompleted=False
-        ).execute()
-        return [
-            {"title": t.get("title", ""), "status": t.get("status", "")}
-            for t in result.get("items", [])
-        ]
+        return self.tasks_store.list_tasks(args)
 
     def _add_tasks(self, args: dict) -> dict:
-        list_id = self._get_or_create_task_list(args["list_name"])
-        added = []
-        for item in args["items"]:
-            task = self.tasks.tasks().insert(
-                tasklist=list_id, body={"title": item}
-            ).execute()
-            added.append(task.get("title", ""))
-        return {"status": "added", "items": added, "list": args["list_name"]}
+        return self.tasks_store.add_tasks(args)
 
     def _complete_task(self, args: dict) -> dict:
-        list_id = self._get_or_create_task_list(args["list_name"])
-        task = self._find_task_by_title(list_id, args["task_title"])
-        if not task:
-            return {"error": f"No task matching '{args['task_title']}' found in {args['list_name']}"}
-        task["status"] = "completed"
-        self.tasks.tasks().update(
-            tasklist=list_id, task=task["id"], body=task
-        ).execute()
-        return {"status": "completed", "title": task["title"]}
+        return self.tasks_store.complete_task(args)
 
     def _delete_task(self, args: dict) -> dict:
-        list_id = self._get_or_create_task_list(args["list_name"])
-        task = self._find_task_by_title(list_id, args["task_title"])
-        if not task:
-            return {"error": f"No task matching '{args['task_title']}' found in {args['list_name']}"}
-        self.tasks.tasks().delete(
-            tasklist=list_id, task=task["id"]
-        ).execute()
-        return {"status": "deleted", "title": task["title"]}
+        return self.tasks_store.delete_task(args)
 
     def _clear_completed(self, args: dict) -> dict:
-        list_id = self._get_or_create_task_list(args["list_name"])
-        self.tasks.tasks().clear(tasklist=list_id).execute()
-        return {"status": "cleared", "list": args["list_name"]}
+        return self.tasks_store.clear_completed(args)
 
     def _list_task_lists(self, args: dict) -> list:
-        result = self.tasks.tasklists().list().execute()
-        return [
-            {"title": tl.get("title", ""), "id": tl.get("id", "")}
-            for tl in result.get("items", [])
-        ]
+        return self.tasks_store.list_task_lists(args)
 
     def _delete_task_list(self, args: dict) -> dict:
-        list_id = self._find_task_list(args["list_name"])
-        if not list_id:
-            return {"error": f"Task list '{args['list_name']}' not found"}
-        self.tasks.tasklists().delete(tasklist=list_id).execute()
-        return {"status": "deleted", "list": args["list_name"]}
+        return self.tasks_store.delete_task_list(args)
 
     def _rename_task_list(self, args: dict) -> dict:
-        list_id = self._find_task_list(args["list_name"])
-        if not list_id:
-            return {"error": f"Task list '{args['list_name']}' not found"}
-        self.tasks.tasklists().patch(
-            tasklist=list_id, body={"title": args["new_name"]}
-        ).execute()
-        return {"status": "renamed", "old_name": args["list_name"], "new_name": args["new_name"]}
+        return self.tasks_store.rename_task_list(args)
 
 
 if __name__ == "__main__":
