@@ -158,9 +158,27 @@ sidekick           # starts the bot
 | `SIDEKICK_DB_PATH` | optional | default `~/.config/sidekick/sidekick.db` |
 | `REMINDER_CHAT_ID` | enables morning summary + pre-event alerts | send `/get_id` to the bot in the target chat |
 | `SLACK_BOT_TOKEN`, `SLACK_APP_TOKEN` | enabling the Slack adapter | Slack app config (below) |
+| `SIDEKICK_WEB_ENABLED` | optional, default `true` | set `false` to skip the admin dashboard |
+| `SIDEKICK_WEB_HOST`, `SIDEKICK_WEB_PORT` | optional | bind interface/port for the dashboard (default `127.0.0.1:8080`) |
 | `TIMEZONE` | optional | IANA name, default `America/Chicago` |
 
 Full reference: [`.env.example`](.env.example).
+
+---
+
+## Admin dashboard
+
+Sidekick ships an in-process web UI at **http://127.0.0.1:8080** for the operator. It runs alongside the Telegram/Slack adapters on the same event loop and surfaces:
+
+- **Reminders** — create, pause, resume, or delete; built-in jobs (morning summary, pre-event check) can be paused but not removed
+- **Tasks** — browse every list, add/complete/delete items, clear completed, drop a whole list
+- **Calendar** — view upcoming events in a configurable window, create / edit / delete events
+- **Settings** — switch personality (same presets the `/personality` chat command exposes) and view a read-only env summary (tokens are excluded)
+- **Health** — JSON `/health` endpoint reports scheduler + MCP subprocess liveness for monitoring
+
+The dashboard is enabled by default and binds to localhost only — no auth, no remote exposure. To reach it remotely, SSH-tunnel (`ssh -L 8080:127.0.0.1:8080 …`) or use Tailscale/WireGuard.
+
+**Docker caveat:** inside a container `127.0.0.1` is the container's loopback, not the host's. Either set `SIDEKICK_WEB_ENABLED=false`, `docker exec` into the container to reach it, or override `SIDEKICK_WEB_HOST=0.0.0.0` and map the port — be aware that exposes it to anyone who can reach the host network.
 
 ---
 
@@ -206,11 +224,14 @@ Set `LLM_PROVIDER=ollama` to route the bot through a local Ollama server instead
 
 ```bash
 pip install -e ".[dev]"
-pytest -v                                  # 87 tests
+pytest                                     # full suite with the 80% coverage gate
+pytest --no-cov                            # faster when iterating locally
 pytest tests/test_storage_tasks.py -v      # one file
+ruff check . && ruff format --check .      # lint + format check (CI gates these)
+mypy src/sidekick                          # strict type check (CI gates this)
 ```
 
-No live API calls in tests — everything is mocked. CI runs on Ubuntu under Python 3.11 and 3.12.
+No live API calls in tests — everything is mocked. CI runs lint + typecheck + tests on Python 3.11 and 3.12 plus a dependency-review step; all five jobs must pass before a PR can merge.
 
 Branching, commit, and PR conventions live in [`.github/CONTRIBUTING.md`](.github/CONTRIBUTING.md). `main` is protected (CODEOWNERS review, linear history, no force-push) — work happens on `feat/`, `fix/`, `chore/` branches and lands via PR.
 

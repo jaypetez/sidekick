@@ -40,11 +40,12 @@ docker compose --profile ollama up -d     # local-LLM mode
 
 ## Architecture
 
-The bot runs three coordinated processes in a single asyncio event loop:
+The bot runs three coordinated processes in a single asyncio event loop, plus an optional in-process web dashboard:
 
 1. **Telegram bot** (`bot.py`) — python-telegram-bot v21 Application with async handlers. Entry point: `sidekick.bot:main`.
 2. **Slack adapter** (`platforms/slack.py`, optional) — runs as a background task in `post_init` iff `SLACK_BOT_TOKEN` and `SLACK_APP_TOKEN` are set. Uses `slack-bolt` async + socket mode.
 3. **MCP subprocess** (`mcp_server.py`) — spawned via stdio transport. Exposes 12 tools (calendar + tasks). Inside, it delegates to the providers below.
+4. **Web dashboard** (`web/`, default on) — aiohttp app spawned as a background task in `post_init` when `SIDEKICK_WEB_ENABLED` isn't false. Binds `127.0.0.1:8080` by default. Shares the live scheduler, agent, and MCP session by reference via `bot_data`; spins up its own `SQLiteTaskStore` and `ChronaryProvider` to avoid wedging into the MCP subprocess's state.
 
 ### Provider abstractions
 
@@ -73,6 +74,7 @@ The set `LOCAL_REMINDER_TOOLS` in `agent.py` determines routing.
 3. Create `SidekickAgent` with mcp_session, scheduler, bot, reminder_chat_id; calls `build_llm_client()` for the LLM
 4. Load tool definitions (MCP tools + local reminder tool defs)
 5. If `SLACK_BOT_TOKEN` set, start `_run_slack()` as a background task
+6. If `SIDEKICK_WEB_ENABLED` isn't false, start `_run_web()` as a background task — builds the aiohttp app via `web.make_app(bot_data=..., task_store=..., calendar_provider=...)` and serves on `SIDEKICK_WEB_HOST:SIDEKICK_WEB_PORT`
 
 ### Reminders (`reminders.py`)
 
@@ -80,6 +82,14 @@ The set `LOCAL_REMINDER_TOOLS` in `agent.py` determines routing.
 - **Custom**: User-created via chat. Persisted to `~/.config/sidekick/reminders.json`. Restored on restart via `load_custom_reminders()`.
 - `send_custom_reminder()` reads `REMINDER_CHAT_ID` from env at send time (not from the stored value).
 - Reminders currently fire only on Telegram. Multi-platform support is a known follow-up.
+
+### Web dashboard (`web/`)
+
+- `web/app.py::make_app()` is the factory. Tests pass a mocked `bot_data` dict and (optionally) a mocked `task_store` / `calendar_provider`; production wiring lives in `bot.py::_run_web()`.
+- Handlers live in `web/handlers/`. Calendar's handler module is `calendar_routes.py` (the stdlib `calendar` module would shadow it).
+- Sync provider calls (`SQLiteTaskStore`, `ChronaryProvider`) are wrapped in `web.helpers.run_sync()` so they don't block the shared event loop — same `loop.run_in_executor` pattern `MCPServer._dispatch` uses.
+- Templates are Jinja2 (`web/templates/`); htmx is loaded from CDN in `base.html`. No build step.
+- Dashboard is **localhost-only by default**. In Docker the container's `127.0.0.1` is not the host's — either set `SIDEKICK_WEB_ENABLED=false`, exec into the container, or override `SIDEKICK_WEB_HOST=0.0.0.0` with the security trade-off that implies.
 
 ### Conversation history
 
@@ -103,6 +113,9 @@ Per-chat history in `agent.py` (`conversation_history` dict). Keys are `int` for
 | `MORNING_REMINDER_TIME` | `07:30` | No (HH:MM 24-hour) |
 | `PRE_EVENT_REMINDER_MINUTES` | `30` | No (lead time for pre-event alerts) |
 | `SIDEKICK_CONFIG_DIR` | `~/.config/sidekick` | No (relocates reminders.json, DB, and personality state) |
+| `SIDEKICK_WEB_ENABLED` | `true` | No (set to `false` to skip the dashboard) |
+| `SIDEKICK_WEB_HOST` | `127.0.0.1` | No (bind interface for the dashboard) |
+| `SIDEKICK_WEB_PORT` | `8080` | No (bind port for the dashboard) |
 | `TIMEZONE` | `America/Chicago` | No |
 | `CLAUDE_MODEL` | `claude-haiku-4-5-20251001` | No |
 
