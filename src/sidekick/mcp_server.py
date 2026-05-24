@@ -22,11 +22,10 @@ from googleapiclient.errors import HttpError
 from mcp.server import Server
 import mcp.types as types
 
-from .calendar.google import GoogleCalendarProvider
+from .calendar.chronary import ChronaryProvider
 from .storage.google_tasks import GoogleTasksStore
 
 SCOPES = [
-    "https://www.googleapis.com/auth/calendar",
     "https://www.googleapis.com/auth/gmail.send",
     "https://www.googleapis.com/auth/tasks",
 ]
@@ -34,28 +33,24 @@ SCOPES = [
 
 class MCPServer:
     def __init__(self):
-        self.service = None
         self.gmail = None
         self.tasks = None
-        self.calendar_id = os.getenv("GOOGLE_CALENDAR_ID", "primary")
         self.timezone = os.getenv("TIMEZONE", "America/Chicago")
-        self._calendar = None      # set lazily via the `calendar` property
-        self._tasks_store = None   # set lazily via the `tasks_store` property
+        self._calendar: ChronaryProvider | None = None
+        self._tasks_store: GoogleTasksStore | None = None
         self.server = Server("sidekick")
         self._register_tools()
 
     # ------------------------------------------------------------------
-    # Provider accessors — lazily constructed so tests that inject raw
-    # Google service mocks (server.service = ..., server.tasks = ...)
-    # without calling build_google_service() still work.
+    # Provider accessors — lazily constructed. Calendar pulls IDs from
+    # environment (set by `sidekick-init`); task store still wraps the
+    # Google Tasks service until step 4 swaps it for SQLite.
     # ------------------------------------------------------------------
 
     @property
-    def calendar(self) -> GoogleCalendarProvider | None:
-        if self._calendar is None and self.service is not None:
-            self._calendar = GoogleCalendarProvider(
-                self.service, self.calendar_id, self.timezone
-            )
+    def calendar(self) -> ChronaryProvider:
+        if self._calendar is None:
+            self._calendar = ChronaryProvider(timezone=self.timezone)
         return self._calendar
 
     @property
@@ -69,14 +64,16 @@ class MCPServer:
     # ------------------------------------------------------------------
 
     def build_google_service(self) -> None:
-        """Load OAuth2 token and build the Calendar service.
+        """Build Google Tasks + Gmail services. Calendar is on Chronary.
 
         token.json must already exist — generate it on your laptop by
         running auth.py, then SCP it to ~/.config/sidekick/token.json.
         The token auto-refreshes when expired.
+
+        Step 4 swaps Tasks → SQLite (no Google needed); step 5 removes
+        Gmail. This method goes away entirely after step 5.
         """
         token_file = os.getenv("GOOGLE_TOKEN_FILE", "token.json")
-        creds_file = os.getenv("GOOGLE_CREDENTIALS_FILE", "credentials.json")
 
         if not os.path.exists(token_file):
             raise FileNotFoundError(
@@ -92,25 +89,8 @@ class MCPServer:
             with open(token_file, "w") as f:
                 f.write(creds.to_json())
 
-        self.service = build("calendar", "v3", credentials=creds)
         self.gmail = build("gmail", "v1", credentials=creds)
         self.tasks = build("tasks", "v1", credentials=creds)
-
-    # ------------------------------------------------------------------
-    # Tool helpers
-    # ------------------------------------------------------------------
-
-    def _event_to_dict(self, event: dict) -> dict:
-        start = event.get("start", {})
-        end = event.get("end", {})
-        return {
-            "id": event.get("id"),
-            "summary": event.get("summary", "(no title)"),
-            "start": start.get("dateTime") or start.get("date"),
-            "end": end.get("dateTime") or end.get("date"),
-            "description": event.get("description", ""),
-            "location": event.get("location", ""),
-        }
 
     # ------------------------------------------------------------------
     # Tool registration
