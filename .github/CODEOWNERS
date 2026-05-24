@@ -1,0 +1,14 @@
+# Code owners for this repository.
+# These owners are automatically requested for review on any pull request
+# that touches the matching paths. Approval from a code owner is required
+# before merging into `main` (enforced via branch protection).
+#
+# Syntax reference: https://docs.github.com/en/repositories/managing-your-repositories-settings-and-security/customizing-your-repository/about-code-owners
+
+# Default owner for everything in the repo.
+*                       @jaypetez
+
+# Community health, security, and contribution policy.
+/.github/               @jaypetez
+/SECURITY.md            @jaypetez
+/LICENSE                @jaypetez
