@@ -120,11 +120,61 @@ def _write_reminders_file(reminders: list[dict[str, Any]]) -> None:
         logger.exception("Failed to chmod reminders file %s", path)
 
 
+_REMINDER_REQUIRED_KEYS = {"id", "message", "schedule"}
+_REMINDER_ALLOWED_KEYS = _REMINDER_REQUIRED_KEYS | {"chat_id", "enabled"}
+
+
+def _validate_reminder(payload: Any) -> dict[str, Any] | None:
+    """Return a sanitized reminder dict, or None if the payload is invalid.
+
+    Drops unknown top-level keys so we don't silently round-trip attacker
+    data through the file. Logs a warning describing the rejection rather
+    than raising — load_custom_reminders is called at startup and a single
+    bad entry must not bring the bot down.
+    """
+    if not isinstance(payload, dict):
+        logger.warning("Reminder entry is not an object: %r", payload)
+        return None
+    missing = _REMINDER_REQUIRED_KEYS - payload.keys()
+    if missing:
+        logger.warning("Reminder %r missing required keys: %s", payload.get("id"), sorted(missing))
+        return None
+    if not isinstance(payload["id"], str) or not payload["id"]:
+        logger.warning("Reminder has non-string or empty id: %r", payload.get("id"))
+        return None
+    if not isinstance(payload["message"], str):
+        logger.warning("Reminder %s has non-string message", payload["id"])
+        return None
+    schedule = payload["schedule"]
+    if not isinstance(schedule, dict) or "type" not in schedule:
+        logger.warning("Reminder %s has invalid schedule", payload["id"])
+        return None
+    stype = schedule["type"]
+    if stype == "cron":
+        if not isinstance(schedule.get("hour"), int) or not isinstance(schedule.get("minute"), int):
+            logger.warning("Reminder %s cron schedule missing hour/minute", payload["id"])
+            return None
+    elif stype == "interval":
+        if not isinstance(schedule.get("interval_minutes"), int):
+            logger.warning("Reminder %s interval schedule missing interval_minutes", payload["id"])
+            return None
+    else:
+        logger.warning("Reminder %s has unknown schedule type %r", payload["id"], stype)
+        return None
+    unknown = payload.keys() - _REMINDER_ALLOWED_KEYS
+    if unknown:
+        logger.warning("Reminder %s has unknown keys (dropped): %s", payload["id"], sorted(unknown))
+    return {k: payload[k] for k in payload.keys() & _REMINDER_ALLOWED_KEYS}
+
+
 def load_custom_reminders(scheduler: AsyncIOScheduler, agent: "SidekickAgent") -> None:
     """Load saved custom reminders and register them with the scheduler."""
     reminders = _read_reminders_file()
     tz = os.getenv("TIMEZONE", "America/Chicago")
-    for r in reminders:
+    for raw in reminders:
+        r = _validate_reminder(raw)
+        if r is None:
+            continue
         if not r.get("enabled", True):
             continue
         try:
