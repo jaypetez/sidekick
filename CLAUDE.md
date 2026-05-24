@@ -18,8 +18,16 @@ sidekick-init
 # Run the bot
 sidekick
 
-# All tests
-pytest -v
+# Lint + format check (CI gates merge on these)
+ruff check .
+ruff format --check .
+
+# Strict type check (CI gates merge on this)
+mypy src/sidekick
+
+# Tests with the 80% coverage floor CI enforces
+pytest                            # uses pyproject's --cov-fail-under=80
+pytest --no-cov                   # skip coverage gate when iterating locally
 
 # Single file / single test
 pytest tests/test_storage_tasks.py -v
@@ -108,6 +116,22 @@ Tests use `unittest.mock` — no live API calls. Notable conventions:
 - SQLite tests inject a `:memory:` connection via the `SQLiteTaskStore(conn=...)` constructor
 - Ollama tests use a fake client and verify the format-translation helpers directly — no live ollama server
 
-`pytest-asyncio` is in dev deps but `asyncio_mode = auto` is **not** configured — every async test must carry an explicit `@pytest.mark.asyncio` decorator.
+`src/sidekick` is fully annotated and `mypy --strict` clean — new code must conform. Coverage floor is 80% (enforced via `--cov-fail-under` in pyproject); the current suite is ~161 tests at ~82%.
 
-CI runs pytest on Python 3.11 and 3.12 via GitHub Actions.
+`pytest-asyncio` runs in strict mode (`asyncio_mode = "strict"` in pyproject.toml) — every async test must carry an explicit `@pytest.mark.asyncio` decorator.
+
+## CI gates (`.github/workflows/ci.yml`)
+
+Five required status checks gate every PR to `main`:
+
+| Job | What it runs |
+|---|---|
+| `lint` | `ruff check .` + `ruff format --check .` |
+| `typecheck` | `mypy src/sidekick` (strict mode) |
+| `test (py3.11)` | `pytest` with `--cov-fail-under=80` on Python 3.11 |
+| `test (py3.12)` | same, on Python 3.12 |
+| `dependency-review` | GitHub's `dependency-review-action`, PRs only |
+
+Run the full set locally before pushing — they all match the commands above.
+
+`.pre-commit-config.yaml` runs ruff lint + format on every commit. Activate with `pre-commit install` after `pip install -e ".[dev]"`.
