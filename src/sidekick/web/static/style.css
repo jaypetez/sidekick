@@ -16,13 +16,15 @@ a:hover { text-decoration: underline; }
 
 .topbar {
   display: flex; align-items: center; gap: 24px;
-  padding: 14px 24px;
+  padding: 10px 24px;
   background: var(--surface);
   border-bottom: 1px solid var(--border);
 }
-.brand { font-weight: 700; font-size: 18px; color: var(--text); }
+.brand { display: inline-flex; align-items: center; gap: 10px; color: var(--text); }
+.brand:hover { text-decoration: none; }
+.brand-logo { height: 36px; width: auto; display: block; }
 .topbar nav { display: flex; gap: 18px; }
-.topbar nav a { color: var(--muted); }
+.topbar nav a { color: var(--muted); padding: 4px 2px; }
 .topbar nav a:hover { color: var(--text); text-decoration: none; }
 
 main { max-width: 960px; margin: 0 auto; padding: 24px; }

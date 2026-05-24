@@ -3,17 +3,21 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="cache-control" content="no-cache">
   <title>{% block title %}Sidekick{% endblock %} — Sidekick admin</title>
   <link rel="stylesheet" href="/static/style.css">
+  <link rel="icon" type="image/svg+xml" href="/static/sidekick-logo.svg">
   <script src="https://unpkg.com/htmx.org@2.0.3" defer></script>
 </head>
-{% set current = request.path if request else '/' %}
-{% macro nav_link(href, label) -%}
-  <a href="{{ href }}" {% if current == href or (href != '/' and current.startswith(href)) %}class="active"{% endif %}>{{ label }}</a>
-{%- endmacro %}
 <body>
+  {% set current = request.path if request else '/' %}
+  {% macro nav_link(href, label) -%}
+  <a href="{{ href }}"{% if current == href or (href != '/' and current.startswith(href)) %} class="active"{% endif %}>{{ label }}</a>
+  {%- endmacro %}
   <header class="topbar">
-    <a class="brand" href="/">Sidekick</a>
+    <a class="brand" href="/" aria-label="Sidekick — go to dashboard">
+      <img class="brand-logo" src="/static/sidekick-logo.svg" alt="Sidekick">
+    </a>
     <nav>
       {{ nav_link('/', 'Dashboard') }}
       {{ nav_link('/chat', 'Chat') }}
