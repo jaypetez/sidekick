@@ -33,8 +33,6 @@ dev = [
     "ruff>=0.15.14",
     "mypy>=2.1.0",
     "pre-commit>=4.6.0",
-    "azure-identity>=1.25",
-    "azure-keyvault-secrets>=4.10",
 ]
 
 [project.scripts]

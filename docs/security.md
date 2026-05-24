@@ -77,9 +77,6 @@ only intended user. The threat model assumes:
 ## Operational checklist
 
 - [ ] `chmod 600 .env` — the file contains every API key the bot uses.
-      (Alternative: push secrets to Azure Key Vault and use
-      `scripts/run-with-kv.ps1` so the file never holds tokens — see
-      [`secrets-azure-keyvault.md`](secrets-azure-keyvault.md).)
 - [ ] `chmod 700 ~/.config/sidekick` — contains the SQLite DB, the
       reminders JSON, the personality config, and the web dashboard token.
 - [ ] Dashboard bound to `127.0.0.1` unless you've put it behind a
