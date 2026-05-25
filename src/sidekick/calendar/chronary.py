@@ -84,8 +84,14 @@ class ChronaryProvider(CalendarProvider):
             )
         )
 
-        result = self.client.agents.events.list(
-            self.agent_id,
+        # Use the calendar-scoped endpoint (``GET /v1/calendars/{cal}/events``)
+        # so we see every event in the calendar, not just the subset the
+        # agent itself scheduled. The agent-scoped endpoint
+        # (``client.agents.events.list``) only returns events the agent owns;
+        # events created via the dashboard's ``POST /events`` form go through
+        # the calendar endpoint and never appear under the agent.
+        result = self.client.events.list(
+            self.calendar_id,
             start_after=start_after,
             start_before=start_before,
             limit=max_results,

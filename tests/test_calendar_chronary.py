@@ -35,37 +35,42 @@ def _make_provider(client=None, timezone="America/Chicago"):
 def test_list_events_uses_timezone_for_boundaries():
     """Local-tz day boundaries must be converted to ``Z``-suffix UTC.
 
-    Chronary's ``GET /v1/agents/{id}/events`` rejects ISO 8601 forms with
+    Chronary's ``GET /v1/calendars/{id}/events`` rejects ISO 8601 forms with
     a numeric offset (``-07:00`` / ``+00:00``) and naive forms — only
     ``Z``-suffix UTC is accepted. So April 1 in LA (PDT, UTC-7) must map
     to ``2026-04-01T07:00:00Z`` .. ``2026-04-02T06:59:59Z``.
     """
     client = MagicMock()
-    client.agents.events.list.return_value = []
+    client.events.list.return_value = []
 
     provider = _make_provider(client=client, timezone="America/Los_Angeles")
     provider.list_events({"start_date": "2026-04-01", "end_date": "2026-04-01"})
 
-    kwargs = client.agents.events.list.call_args.kwargs
+    kwargs = client.events.list.call_args.kwargs
     assert kwargs["start_after"] == "2026-04-01T07:00:00Z"
     assert kwargs["start_before"] == "2026-04-02T06:59:59Z"
 
 
-def test_list_events_passes_agent_id_and_limit():
+def test_list_events_passes_calendar_id_and_limit():
+    """``list_events`` must hit the calendar-scoped endpoint so dashboard-
+    created events are visible. Prior to this fix the provider used
+    ``client.agents.events.list(agent_id, ...)`` and events created via
+    ``POST /v1/calendars/{cal}/events`` (the create path) never appeared.
+    """
     client = MagicMock()
-    client.agents.events.list.return_value = []
+    client.events.list.return_value = []
 
     provider = _make_provider(client=client)
     provider.list_events({"start_date": "2026-04-01", "end_date": "2026-04-02", "max_results": 50})
 
-    args, kwargs = client.agents.events.list.call_args
-    assert args[0] == "agt_test"
+    args, kwargs = client.events.list.call_args
+    assert args[0] == "cal_test"
     assert kwargs["limit"] == 50
 
 
 def test_list_events_maps_response_to_dicts():
     client = MagicMock()
-    client.agents.events.list.return_value = [
+    client.events.list.return_value = [
         SimpleNamespace(
             id="evt_1",
             title="Team sync",
@@ -108,7 +113,7 @@ def test_list_events_unwraps_sync_pager():
             ),
         ],
     )
-    client.agents.events.list.return_value = pager
+    client.events.list.return_value = pager
     provider = _make_provider(client=client)
 
     result = provider.list_events({"start_date": "2026-04-01", "end_date": "2026-04-01"})
