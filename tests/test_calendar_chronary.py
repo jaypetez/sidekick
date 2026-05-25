@@ -33,7 +33,13 @@ def _make_provider(client=None, timezone="America/Chicago"):
 
 
 def test_list_events_uses_timezone_for_boundaries():
-    """Timezone offset must apply to start_after / start_before."""
+    """Local-tz day boundaries must be converted to ``Z``-suffix UTC.
+
+    Chronary's ``GET /v1/agents/{id}/events`` rejects ISO 8601 forms with
+    a numeric offset (``-07:00`` / ``+00:00``) and naive forms — only
+    ``Z``-suffix UTC is accepted. So April 1 in LA (PDT, UTC-7) must map
+    to ``2026-04-01T07:00:00Z`` .. ``2026-04-02T06:59:59Z``.
+    """
     client = MagicMock()
     client.agents.events.list.return_value = []
 
@@ -41,9 +47,8 @@ def test_list_events_uses_timezone_for_boundaries():
     provider.list_events({"start_date": "2026-04-01", "end_date": "2026-04-01"})
 
     kwargs = client.agents.events.list.call_args.kwargs
-    # April 1 in LA is in PDT — -07:00
-    assert kwargs["start_after"] == "2026-04-01T00:00:00-07:00"
-    assert kwargs["start_before"] == "2026-04-01T23:59:59-07:00"
+    assert kwargs["start_after"] == "2026-04-01T07:00:00Z"
+    assert kwargs["start_before"] == "2026-04-02T06:59:59Z"
 
 
 def test_list_events_passes_agent_id_and_limit():
@@ -83,12 +88,43 @@ def test_list_events_maps_response_to_dicts():
     assert e["location"] == "Room 4B"
 
 
+def test_list_events_unwraps_sync_pager():
+    """Chronary SDK >=0.1.x returns a ``SyncPager`` whose entries live on ``.data``.
+
+    The pager is not directly iterable, so the provider must unwrap it before
+    mapping into plain dicts. Prior to this fix the ``/events`` page rendered a
+    ``'SyncPager' object is not iterable`` error banner.
+    """
+    client = MagicMock()
+    pager = SimpleNamespace(
+        data=[
+            SimpleNamespace(
+                id="evt_2",
+                title="Standup",
+                start_time="2026-04-01T09:00:00-05:00",
+                end_time="2026-04-01T09:15:00-05:00",
+                description="",
+                metadata=None,
+            ),
+        ],
+    )
+    client.agents.events.list.return_value = pager
+    provider = _make_provider(client=client)
+
+    result = provider.list_events({"start_date": "2026-04-01", "end_date": "2026-04-01"})
+
+    assert len(result) == 1
+    assert result[0]["id"] == "evt_2"
+    assert result[0]["summary"] == "Standup"
+
+
 # -------------------------------------------------------------------
 # create_event
 # -------------------------------------------------------------------
 
 
 def test_create_event_passes_required_fields():
+    """Datetimes with a numeric offset must be normalized to ``Z``-suffix UTC."""
     client = MagicMock()
     client.events.create.return_value = SimpleNamespace(
         id="evt_new", title="Lunch", url=None, html_link=None
@@ -106,10 +142,53 @@ def test_create_event_passes_required_fields():
     kwargs = client.events.create.call_args.kwargs
     assert kwargs["calendar_id"] == "cal_test"
     assert kwargs["title"] == "Lunch"
-    assert kwargs["start_time"] == "2026-04-01T12:00:00-05:00"
-    assert kwargs["end_time"] == "2026-04-01T13:00:00-05:00"
+    # 12:00 CDT (-05:00) == 17:00Z; 13:00 CDT == 18:00Z.
+    assert kwargs["start_time"] == "2026-04-01T17:00:00Z"
+    assert kwargs["end_time"] == "2026-04-01T18:00:00Z"
     assert "all_day" not in kwargs
     assert result["id"] == "evt_new"
+
+
+def test_create_event_normalizes_naive_datetime_to_provider_tz():
+    """The web dashboard's ``<input type="datetime-local">`` produces naive
+    strings (``2026-04-01T12:00``). The provider must attach its configured
+    timezone before converting to ``Z``-suffix UTC.
+    """
+    client = MagicMock()
+    client.events.create.return_value = SimpleNamespace(id="evt_z", title="x")
+    provider = _make_provider(client=client, timezone="America/Chicago")
+
+    provider.create_event(
+        {
+            "summary": "x",
+            "start_datetime": "2026-04-01T12:00",
+            "end_datetime": "2026-04-01T13:00",
+        }
+    )
+
+    kwargs = client.events.create.call_args.kwargs
+    # April 1 in Chicago is CDT (UTC-5); 12:00 local == 17:00Z.
+    assert kwargs["start_time"] == "2026-04-01T17:00:00Z"
+    assert kwargs["end_time"] == "2026-04-01T18:00:00Z"
+
+
+def test_create_event_passes_through_z_suffix_unchanged():
+    """``Z``-suffix UTC input is already in the form Chronary wants."""
+    client = MagicMock()
+    client.events.create.return_value = SimpleNamespace(id="evt_z", title="x")
+    provider = _make_provider(client=client)
+
+    provider.create_event(
+        {
+            "summary": "x",
+            "start_datetime": "2026-04-01T17:00:00Z",
+            "end_datetime": "2026-04-01T18:00:00Z",
+        }
+    )
+
+    kwargs = client.events.create.call_args.kwargs
+    assert kwargs["start_time"] == "2026-04-01T17:00:00Z"
+    assert kwargs["end_time"] == "2026-04-01T18:00:00Z"
 
 
 def test_create_event_stashes_location_in_metadata():
@@ -199,6 +278,31 @@ def test_update_event_with_location_merges_metadata():
         "attendees": ["a@x"],
         "location": "New Room",
     }
+
+
+def test_update_event_normalizes_datetimes_to_z():
+    """``update_event`` shares ``create_event``'s Chronary constraint."""
+    client = MagicMock()
+    client.events.update.return_value = SimpleNamespace(
+        id="evt_1",
+        title="t",
+        start_time="s",
+        end_time="e",
+        description="d",
+        metadata={},
+    )
+    provider = _make_provider(client=client, timezone="America/Chicago")
+    provider.update_event(
+        {
+            "event_id": "evt_1",
+            "start_datetime": "2026-04-01T12:00",  # naive (dashboard form)
+            "end_datetime": "2026-04-01T13:00:00-05:00",  # offset form (LLM)
+        }
+    )
+
+    kwargs = client.events.update.call_args.kwargs
+    assert kwargs["start_time"] == "2026-04-01T17:00:00Z"
+    assert kwargs["end_time"] == "2026-04-01T18:00:00Z"
 
 
 # -------------------------------------------------------------------
