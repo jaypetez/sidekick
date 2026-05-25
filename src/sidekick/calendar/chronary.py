@@ -17,11 +17,43 @@ Known feature gaps vs Google Calendar:
 """
 
 import os
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 from zoneinfo import ZoneInfo
 
 from .base import CalendarProvider
+
+
+def _to_utc_z(dt: datetime) -> str:
+    """Format an aware datetime as ``YYYY-MM-DDTHH:MM:SSZ``.
+
+    Chronary's events endpoint only accepts ``Z``-suffixed UTC timestamps;
+    offset forms like ``-05:00`` or ``+00:00`` and naive forms are rejected
+    with ``400 validation_error``. ``datetime.isoformat()`` emits the offset
+    form even when the offset is zero, so we format explicitly.
+    """
+    return dt.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _normalize_event_datetime(value: str, default_tz: str) -> str:
+    """Normalize an ISO 8601 datetime string for the Chronary events API.
+
+    Inputs can come from the LLM (typically ``-05:00`` offset form) or the
+    web dashboard's HTML ``<input type="datetime-local">`` (naive form like
+    ``2026-05-26T13:00``). Chronary only accepts ``Z``-suffix UTC, so we:
+
+    * pass date-only strings (``YYYY-MM-DD``, no ``T``) through unchanged so
+      all-day events still flow into the SDK with ``all_day=True``;
+    * parse anything with a ``T``, attach ``default_tz`` if the value is
+      naive, and re-emit as ``Z``-suffix UTC.
+    """
+    if "T" not in value:
+        return value
+    # ``fromisoformat`` accepts ``Z`` natively on 3.11+.
+    parsed = datetime.fromisoformat(value)
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=ZoneInfo(default_tz))
+    return _to_utc_z(parsed)
 
 
 class ChronaryProvider(CalendarProvider):
@@ -45,11 +77,11 @@ class ChronaryProvider(CalendarProvider):
         max_results = args.get("max_results", 20)
 
         tz = ZoneInfo(self.timezone)
-        start_after = datetime.strptime(start_date, "%Y-%m-%d").replace(tzinfo=tz).isoformat()
-        start_before = (
-            datetime.strptime(end_date, "%Y-%m-%d")
-            .replace(hour=23, minute=59, second=59, tzinfo=tz)
-            .isoformat()
+        start_after = _to_utc_z(datetime.strptime(start_date, "%Y-%m-%d").replace(tzinfo=tz))
+        start_before = _to_utc_z(
+            datetime.strptime(end_date, "%Y-%m-%d").replace(
+                hour=23, minute=59, second=59, tzinfo=tz
+            )
         )
 
         result = self.client.agents.events.list(
@@ -58,10 +90,15 @@ class ChronaryProvider(CalendarProvider):
             start_before=start_before,
             limit=max_results,
         )
-        return [_event_to_dict(e) for e in result]
+        # SDK >=0.1.x returns a ``SyncPager`` (not directly iterable); fall back
+        # to plain-list for the test doubles that pre-date this API change.
+        events = result.data if hasattr(result, "data") else list(result)
+        return [_event_to_dict(e) for e in events]
 
     def create_event(self, args: dict[str, Any]) -> dict[str, Any]:
-        # Chronary requires ISO 8601 timestamps; passthrough.
+        # Chronary's API rejects offset and naive datetime forms — normalize
+        # to ``Z``-suffix UTC. Date-only strings (all-day events) are passed
+        # through unchanged.
         metadata: dict[str, Any] = {}
         if args.get("location"):
             metadata["location"] = args["location"]
@@ -71,8 +108,8 @@ class ChronaryProvider(CalendarProvider):
         kwargs: dict[str, Any] = {
             "calendar_id": self.calendar_id,
             "title": args["summary"],
-            "start_time": args["start_datetime"],
-            "end_time": args["end_datetime"],
+            "start_time": _normalize_event_datetime(args["start_datetime"], self.timezone),
+            "end_time": _normalize_event_datetime(args["end_datetime"], self.timezone),
         }
         if "description" in args:
             kwargs["description"] = args["description"]
@@ -97,9 +134,9 @@ class ChronaryProvider(CalendarProvider):
         if "description" in args:
             kwargs["description"] = args["description"]
         if "start_datetime" in args:
-            kwargs["start_time"] = args["start_datetime"]
+            kwargs["start_time"] = _normalize_event_datetime(args["start_datetime"], self.timezone)
         if "end_datetime" in args:
-            kwargs["end_time"] = args["end_datetime"]
+            kwargs["end_time"] = _normalize_event_datetime(args["end_datetime"], self.timezone)
         if "location" in args or "attendees" in args:
             # Merge into metadata. We don't fetch the existing event first
             # because Chronary's PATCH semantics replace metadata wholesale
