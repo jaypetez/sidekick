@@ -31,6 +31,13 @@ LOOPBACK_HOSTS = frozenset({"127.0.0.1", "localhost", "::1"})
 # Paths that never require auth: liveness probe + static assets.
 PUBLIC_PATH_PREFIXES = ("/health", "/static/")
 
+# Paths that handle the login flow itself — auth_middleware lets these
+# through unconditionally so users can render the form and submit it.
+LOGIN_PATHS = frozenset({"/login", "/logout"})
+
+# Session-storage key set when a user has authenticated via the login form.
+SESSION_AUTH_KEY = "_authenticated"
+
 
 def _config_dir() -> Path:
     """Return the resolved config directory (mirrors sidekick.reminders)."""
@@ -107,3 +114,47 @@ def extract_bearer(authorization_header: str | None) -> str | None:
     if len(parts) != 2 or parts[0].lower() != "bearer":
         return None
     return parts[1].strip() or None
+
+
+def is_login_path(path: str) -> bool:
+    """True when ``path`` is part of the login flow itself."""
+    return path in LOGIN_PATHS
+
+
+def is_session_authenticated(session: object) -> bool:
+    """True when the session has been marked as authenticated."""
+    try:
+        return bool(session[SESSION_AUTH_KEY])  # type: ignore[index]
+    except (KeyError, TypeError):
+        return False
+
+
+def mark_session_authenticated(session: object) -> None:
+    """Set the session flag indicating the user has authenticated."""
+    session[SESSION_AUTH_KEY] = True  # type: ignore[index]
+
+
+def clear_session_authentication(session: object) -> None:
+    """Remove the session authentication flag (logout)."""
+    try:
+        del session[SESSION_AUTH_KEY]  # type: ignore[attr-defined]
+    except (KeyError, TypeError):
+        pass
+
+
+def safe_next_url(value: str | None, *, default: str = "/") -> str:
+    """Return ``value`` if it is a safe internal path, else ``default``.
+
+    Rejects values that don't start with ``/``, that start with ``//`` or
+    ``/\\``, or that contain ``\\``. This prevents open-redirect attacks
+    via a crafted ``?next=//evil.example/`` query parameter.
+    """
+    if not value:
+        return default
+    if not value.startswith("/"):
+        return default
+    if value.startswith("//") or value.startswith("/\\"):
+        return default
+    if "\\" in value:
+        return default
+    return value

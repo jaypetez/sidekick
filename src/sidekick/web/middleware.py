@@ -16,12 +16,20 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Awaitable, Callable
+from urllib.parse import quote as _urlquote
 
 from aiohttp import web
 from aiohttp_session import get_session
 
 from . import csrf
-from .auth import extract_bearer, get_auth_token, is_public_path
+from .auth import (
+    constant_time_equals,
+    extract_bearer,
+    get_auth_token,
+    is_login_path,
+    is_public_path,
+    is_session_authenticated,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -98,20 +106,44 @@ async def auth_middleware(
     request: web.Request,
     handler: Callable[[web.Request], Awaitable[web.StreamResponse]],
 ) -> web.StreamResponse:
-    """Enforce bearer-token auth when ``SIDEKICK_WEB_AUTH_TOKEN`` is set.
+    """Enforce auth when ``SIDEKICK_WEB_AUTH_TOKEN`` is set.
 
-    ``/static/`` and ``/health`` are always reachable; ``/health`` itself
-    decides what to return for unauthenticated callers.
+    Three ways a request can be authenticated:
+
+    1. The path is in :data:`~.auth.PUBLIC_PATH_PREFIXES` or
+       :data:`~.auth.LOGIN_PATHS` (always allowed).
+    2. The session cookie carries the "authenticated" marker (set by the
+       login form). This is the browser path.
+    3. The request carries ``Authorization: Bearer <token>``. This keeps
+       API clients, CLI scripts, and the test suite working unchanged.
+
+    For unauthenticated browser GETs (``Accept: text/html`` and no
+    ``Authorization`` header) we issue a 303 redirect to
+    ``/login?next=<original>`` so the user lands on a real form instead
+    of a useless 401 page. Everything else (API clients, bad-Bearer
+    requests) still gets the standard 401 + ``WWW-Authenticate``
+    contract.
     """
     expected = get_auth_token()
-    if expected is None or is_public_path(request.path):
+    if expected is None or is_public_path(request.path) or is_login_path(request.path):
         return await handler(request)
-    candidate = extract_bearer(request.headers.get("Authorization"))
-    from .auth import constant_time_equals
 
-    if not candidate or not constant_time_equals(expected, candidate):
-        raise web.HTTPUnauthorized(
-            reason="Authentication required",
-            headers={"WWW-Authenticate": 'Bearer realm="sidekick"'},
-        )
-    return await handler(request)
+    session = await get_session(request)
+    if is_session_authenticated(session):
+        return await handler(request)
+
+    auth_header = request.headers.get("Authorization")
+    candidate = extract_bearer(auth_header)
+    if candidate and constant_time_equals(expected, candidate):
+        return await handler(request)
+
+    accepts_html = "text/html" in request.headers.get("Accept", "")
+    if request.method == "GET" and accepts_html and auth_header is None:
+        target = request.path_qs or "/"
+        location = f"/login?next={_urlquote(target, safe='')}"
+        raise web.HTTPSeeOther(location=location)
+
+    raise web.HTTPUnauthorized(
+        reason="Authentication required",
+        headers={"WWW-Authenticate": 'Bearer realm="sidekick"'},
+    )

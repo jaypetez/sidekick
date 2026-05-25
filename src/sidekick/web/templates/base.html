@@ -39,6 +39,12 @@
       {{ nav_link('/events', 'Calendar') }}
       {{ nav_link('/settings', 'Settings') }}
     </nav>
+    {% if auth_enabled %}
+    <form class="logout-form" method="post" action="/logout">
+      <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+      <button type="submit" class="logout-button">Sign out</button>
+    </form>
+    {% endif %}
   </header>
   <main>
     {% block content %}{% endblock %}

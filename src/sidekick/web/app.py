@@ -23,7 +23,7 @@ from aiohttp_session.cookie_storage import EncryptedCookieStorage
 from ..calendar.chronary import ChronaryProvider
 from ..storage.sqlite_tasks import SQLiteTaskStore
 from . import csrf as csrf_mod
-from .auth import load_or_create_session_secret
+from .auth import get_auth_token, load_or_create_session_secret
 from .handlers import (
     calendar_routes,
     chat,
@@ -32,6 +32,9 @@ from .handlers import (
     reminders,
     settings,
     tasks,
+)
+from .handlers import (
+    login as login_handler,
 )
 from .middleware import (
     auth_middleware,
@@ -71,7 +74,10 @@ async def _csrf_context(request: web.Request) -> dict[str, Any]:
     from aiohttp_session import get_session
 
     session = await get_session(request)
-    return {"csrf_token": csrf_mod.get_or_create_token(session)}
+    return {
+        "csrf_token": csrf_mod.get_or_create_token(session),
+        "auth_enabled": get_auth_token() is not None,
+    }
 
 
 async def _csrf_endpoint(request: web.Request) -> web.Response:
@@ -119,12 +125,18 @@ def make_app(
     one writer is fine under WAL.
     """
     storage = _build_session_storage()
+    # Middleware order matters: aiohttp runs them top-down on the request
+    # path, so an entry later in the list runs *inside* an earlier one. We
+    # need ``auth_middleware`` to be able to read the session cookie (to
+    # honor a freshly-issued login), so it must sit *after* the session
+    # middleware. CSRF stays between session and auth so it can validate
+    # the login POST itself using the session-bound token.
     middlewares: list[Any] = [
         security_headers_middleware,
         _no_cache_html_middleware,
-        auth_middleware,
         session_middleware(storage),
         csrf_middleware,
+        auth_middleware,
     ]
     app = web.Application(middlewares=middlewares)
     app["bot_data"] = bot_data
@@ -157,6 +169,10 @@ def make_app(
     app.router.add_get("/", dashboard.home, name="home")
     app.router.add_get("/health", health.health, name="health")
     app.router.add_get("/_csrf", _csrf_endpoint, name="csrf")
+
+    app.router.add_get("/login", login_handler.index, name="login.index")
+    app.router.add_post("/login", login_handler.submit, name="login.submit")
+    app.router.add_post("/logout", login_handler.logout, name="login.logout")
 
     app.router.add_get("/chat", chat.index, name="chat.index")
     app.router.add_post("/chat", chat.send, name="chat.send")
