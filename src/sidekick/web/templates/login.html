@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="cache-control" content="no-store">
+  <meta name="csrf-token" content="{{ csrf_token }}">
+  <title>Sign in — Sidekick</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <link rel="icon" type="image/svg+xml" href="/static/sidekick-logo.svg">
+</head>
+<body class="login-body">
+  <main class="login-main">
+    <div class="login-card">
+      <img class="login-logo" src="/static/sidekick-logo.svg" alt="Sidekick">
+      <h1>Sign in to Sidekick</h1>
+      <p class="login-help">
+        Paste the value of <code>SIDEKICK_WEB_AUTH_TOKEN</code> to access the dashboard.
+        API and CLI clients can keep using <code>Authorization: Bearer &lt;token&gt;</code>.
+      </p>
+      {% if error %}
+        <div class="login-error" role="alert">{{ error }}</div>
+      {% endif %}
+      <form method="post" action="/login" autocomplete="off">
+        <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+        <input type="hidden" name="next" value="{{ next_url }}">
+        <label for="login-token">Dashboard token</label>
+        <input
+          id="login-token"
+          name="token"
+          type="password"
+          required
+          autofocus
+          autocomplete="current-password"
+          spellcheck="false">
+        <button type="submit">Sign in</button>
+      </form>
+    </div>
+  </main>
+</body>
+</html>
