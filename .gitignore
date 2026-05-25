@@ -1,7 +1,31 @@
 # Secrets — never commit these
 .env
+.env.*
+!.env.example
 credentials.json
 token.json
+
+# Secret-bearing files this repo's tooling and personal-machine helpers
+# may produce. Catch-all: anything ending in -creds.json, -secrets.json,
+# or .secret(s).
+*.secret
+*.secrets
+*secrets.json
+*-creds.json
+.chronary-*
+.azure-*
+.keyvault-*
+.kv-*.json
+auth.json
+api-keys.json
+
+# Private key material
+*.pem
+*.key
+*.p12
+*.pfx
+id_rsa
+id_ed25519
 
 # Python
 __pycache__/
