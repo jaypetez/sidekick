@@ -123,6 +123,40 @@ def test_list_events_unwraps_sync_pager():
     assert result[0]["summary"] == "Standup"
 
 
+def test_list_events_serializes_datetime_fields_to_z_utc():
+    """The real Chronary SDK returns ``start_time``/``end_time`` as aware
+    ``datetime`` objects, which crash ``json.dumps`` at the MCP boundary with
+    ``Object of type datetime is not JSON serializable``. The provider must
+    render them as ``Z``-suffix UTC strings so the mapped event survives JSON
+    serialization.
+    """
+    import json
+    from datetime import UTC, datetime
+    from zoneinfo import ZoneInfo
+
+    client = MagicMock()
+    client.events.list.return_value = [
+        SimpleNamespace(
+            id="evt_3",
+            title="Sync with Gautam",
+            # aware datetimes, exactly as the SDK hands them back
+            start_time=datetime(2026, 5, 29, 22, 0, 0, tzinfo=UTC),
+            end_time=datetime(2026, 5, 29, 15, 30, 0, tzinfo=ZoneInfo("America/Los_Angeles")),
+            description="",
+            metadata=None,
+        ),
+    ]
+    provider = _make_provider(client=client)
+    result = provider.list_events({"start_date": "2026-05-29", "end_date": "2026-05-29"})
+
+    e = result[0]
+    assert e["start"] == "2026-05-29T22:00:00Z"
+    # 15:30 PDT (UTC-7) -> 22:30 UTC
+    assert e["end"] == "2026-05-29T22:30:00Z"
+    # The whole result must be JSON-serializable (the original failure mode).
+    json.dumps(result)
+
+
 # -------------------------------------------------------------------
 # create_event
 # -------------------------------------------------------------------

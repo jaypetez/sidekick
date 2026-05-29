@@ -173,6 +173,23 @@ def _attr(obj: Any, name: str, default: Any = None) -> Any:
     return getattr(obj, name, default)
 
 
+def _iso_utc(value: Any) -> Any:
+    """Coerce a Chronary datetime to a ``Z``-suffix UTC string for JSON output.
+
+    The SDK returns ``start_time``/``end_time`` as aware ``datetime`` objects.
+    Those would crash ``json.dumps`` at the MCP boundary (``mcp_server.py``)
+    with ``Object of type datetime is not JSON serializable``, so we render
+    them in the same ``Z``-UTC form the rest of this module standardizes on.
+    Plain strings (older SDK versions and the test doubles) pass through
+    untouched.
+    """
+    if isinstance(value, datetime):
+        if value.tzinfo is None:
+            value = value.replace(tzinfo=UTC)
+        return _to_utc_z(value)
+    return value
+
+
 def _event_to_dict(event: Any) -> dict[str, Any]:
     metadata = _attr(event, "metadata") or {}
     if not isinstance(metadata, dict):
@@ -180,8 +197,8 @@ def _event_to_dict(event: Any) -> dict[str, Any]:
     return {
         "id": _attr(event, "id"),
         "summary": _attr(event, "title", "(no title)"),
-        "start": _attr(event, "start_time"),
-        "end": _attr(event, "end_time"),
+        "start": _iso_utc(_attr(event, "start_time")),
+        "end": _iso_utc(_attr(event, "end_time")),
         "description": _attr(event, "description", ""),
         "location": metadata.get("location", ""),
         "attendees": metadata.get("attendees", []),
