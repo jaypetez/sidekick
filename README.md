@@ -190,6 +190,7 @@ sidekick           # starts the bot
 | Variable | Required when | Where to get it |
 |---|---|---|
 | `TELEGRAM_BOT_TOKEN` | only when you want Telegram (leave blank for web-only mode) | [@BotFather](https://t.me/BotFather) → `/newbot` |
+| `TELEGRAM_ALLOWED_USER_IDS` | whenever Telegram is enabled — **closed-by-default: unset = every message rejected** | CSV of numeric user IDs; find yours via [@userinfobot](https://t.me/userinfobot) |
 | `LLM_PROVIDER` | optional, default `anthropic` | `anthropic` \| `ollama` |
 | `ANTHROPIC_API_KEY` | `LLM_PROVIDER=anthropic` | [console.anthropic.com](https://console.anthropic.com) |
 | `OLLAMA_BASE_URL`, `OLLAMA_MODEL` | `LLM_PROVIDER=ollama` | local install (or compose `ollama` service) |
@@ -224,9 +225,45 @@ The dashboard is enabled by default and binds to localhost only — no auth, no 
 
 ---
 
+## Setting up Telegram
+
+Telegram is the default chat surface. Two env vars get you running: a bot token and an allowlist.
+
+1. **Create the bot.** Message [@BotFather](https://t.me/BotFather), send `/newbot`, and follow the prompts (pick a display name, then a username ending in `bot`). BotFather replies with a token like `123456:ABC-DEF…` — put it in `.env` as `TELEGRAM_BOT_TOKEN`.
+2. **Find your user ID.** Message [@userinfobot](https://t.me/userinfobot); it replies with your numeric Telegram user ID.
+3. **Allow yourself in.** Set `TELEGRAM_ALLOWED_USER_IDS` to that ID (CSV for multiple people, e.g. `12345678,98765432`). **This is closed-by-default — if it's unset or empty, the bot rejects every message,** so this step is not optional. Restart after editing.
+4. **Start chatting.** Open your bot in Telegram (search its `@username`) and send `/start`. Talk to it naturally — no slash commands required.
+
+**Built-in commands:** `/start` (intro), `/reset` (clear conversation history), `/get_id` (print this chat's ID), `/personality <style>` (change tone).
+
+> The allowlist is keyed on **user** ID, while `REMINDER_CHAT_ID` (below) wants a **chat** ID. In a 1:1 DM with the bot the two are identical, so `/get_id` in your DM gives you the value for both. They diverge only in group chats.
+
+### Using it in a group chat
+
+You can run Sidekick in a group instead of (or alongside) a 1:1 DM — handy for a household or team. Two extra things matter:
+
+1. **Add the bot to the group.** Open the group → *Add members* → search your bot's `@username` and add it.
+2. **Decide on group privacy mode.** By default, BotFather bots join with **privacy mode ON**: the bot only sees messages that @mention it, reply to one of its messages, or are commands (`/get_id`, `/start`). When you add it, Telegram shows a *"the bot has no access to messages"* note — that's this setting, and it's expected.
+   - **Leave it ON** to have the bot respond only when explicitly addressed (`@yourbot what's on my calendar?`). Recommended for busy groups.
+   - **Turn it OFF** to have the bot act on *every* message in the group. Sidekick has no mention-gate, so with privacy off it will try to respond to everything an allowlisted user posts. To disable: message [@BotFather](https://t.me/BotFather) → `/setprivacy` → pick your bot → **Disable**. ⚠️ The change only applies to groups the bot joins *after* the switch, so **remove the bot from the group and re-add it** for it to take effect.
+3. **The allowlist still applies per user.** `TELEGRAM_ALLOWED_USER_IDS` gates *who* may command the bot even in a group — add each person's numeric user ID, comma-separated. Everyone else is ignored.
+4. **Point reminders at the group.** Set `REMINDER_CHAT_ID` to the group's chat ID — a **negative** number for groups. Get it with `/get_id` in the group, or via the API tip below.
+
+> **Tip — grab user & chat IDs without running the bot.** Once `TELEGRAM_BOT_TOKEN` is set and the bot is in the chat, post a message there, then ask Telegram's API directly:
+> ```bash
+> curl -s "https://api.telegram.org/bot<YOUR_BOT_TOKEN>/getUpdates" | python -m json.tool
+> ```
+> In each update, `message.from.id` is a **user ID** (for `TELEGRAM_ALLOWED_USER_IDS`) and `message.chat.id` is the **chat ID** (negative for groups; use it for `REMINDER_CHAT_ID`). Telegram only retains updates briefly, so send a fresh message right before you call this.
+
+### Enabling reminders (optional)
+
+Morning summaries and pre-event alerts need a destination chat. Send `/get_id` to the bot in the chat you want them delivered to, then set `REMINDER_CHAT_ID` to the value it prints and restart. Leave it unset to skip reminders entirely.
+
+---
+
 ## Adding Slack
 
-Telegram works out of the box. Slack is opt-in and runs concurrently — same bot, two front doors.
+Telegram works out of the box once allowlisted (above). Slack is opt-in and runs concurrently — same bot, two front doors.
 
 1. Create a Slack app at https://api.slack.com/apps
 2. Enable **Socket Mode** → generate an `xapp-…` app-level token
