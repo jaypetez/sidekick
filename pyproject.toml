@@ -1,10 +1,10 @@
 [build-system]
-requires = ["hatchling"]
+requires = ["hatchling", "hatch-vcs"]
 build-backend = "hatchling.build"
 
 [project]
 name = "sidekick"
-version = "0.1.0"
+dynamic = ["version"]
 description = "A personal Telegram assistant powered by Claude AI"
 readme = "README.md"
 license = {file = "LICENSE"}
@@ -38,6 +38,12 @@ dev = [
 [project.scripts]
 sidekick = "sidekick.bot:main"
 sidekick-init = "sidekick.init_cli:main"
+
+# Version is derived from the latest git tag (vX.Y.Z) at build time.
+# In containers / sdists without a .git dir, the build reads
+# SETUPTOOLS_SCM_PRETEND_VERSION instead (see Dockerfile + release.yml).
+[tool.hatch.version]
+source = "vcs"
 
 [tool.ruff]
 target-version = "py311"

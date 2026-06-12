@@ -36,7 +36,22 @@ pytest tests/test_calendar_chronary.py::test_list_events_uses_timezone_for_bound
 # Docker
 docker compose up -d                      # Anthropic mode
 docker compose --profile ollama up -d     # local-LLM mode
+
+# Release (push a tag; everything else is automated)
+git tag v0.2.0 && git push origin v0.2.0
 ```
+
+## Releasing
+
+The package version is **derived from the git tag** via `hatch-vcs` — `pyproject.toml`
+declares `dynamic = ["version"]` and there is no hardcoded version. To cut a release,
+tag a commit on `main` as `vX.Y.Z` and push the tag. `.github/workflows/release.yml`
+then (1) creates the GitHub Release with auto-generated notes and (2) builds the
+Dockerfile and pushes `ghcr.io/jaypetez/sidekick:{X.Y.Z, X.Y, latest}` to GHCR.
+
+Because the Docker build context has no `.git`, the workflow passes the version into
+the image via `--build-arg VERSION=` → `SETUPTOOLS_SCM_PRETEND_VERSION` (see Dockerfile).
+At runtime `sidekick.__version__` reads the installed package metadata.
 
 ## Architecture
 

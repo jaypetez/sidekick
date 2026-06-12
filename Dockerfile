@@ -13,6 +13,12 @@ WORKDIR /app
 COPY pyproject.toml README.md LICENSE ./
 COPY src ./src
 
+# The package version is normally derived from the git tag (hatch-vcs), but this
+# build context has no .git dir. The release workflow passes the tag via
+# --build-arg VERSION=X.Y.Z; setuptools_scm (under hatch-vcs) honors this env var.
+ARG VERSION=0.0.0
+ENV SETUPTOOLS_SCM_PRETEND_VERSION=${VERSION}
+
 RUN pip install .
 
 # Default config lives in the user's home and is mounted from a host volume
