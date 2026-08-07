@@ -5,6 +5,13 @@ updates:
     schedule:
       interval: "daily"
     open-pull-requests-limit: 5
+    ignore:
+      # mcp 2.x is a breaking API redesign that leaves the bot unable to start:
+      # `Server.list_tools()` / `Server.call_tool()` are gone and `inputSchema`
+      # was renamed to `input_schema`. See #93 (revert) and #94 (re-proposal).
+      # Drop this once the MCP layer is ported to the 2.0 API.
+      - dependency-name: "mcp"
+        update-types: ["version-update:semver-major"]
     groups:
       python-dependencies:
         patterns:
