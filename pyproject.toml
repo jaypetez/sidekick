@@ -21,7 +21,7 @@ dependencies = [
     "jinja2>=3.1.6",
     "ollama>=0.6.2",
     "APScheduler==3.11.3",
-    "python-dotenv==1.2.2",
+    "python-dotenv==1.2.3",
 ]
 
 [project.optional-dependencies]
