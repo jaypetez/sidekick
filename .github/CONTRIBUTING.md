@@ -18,6 +18,7 @@ file.
 - [Submitting a pull request](#submitting-a-pull-request)
 - [Code review and sign-off](#code-review-and-sign-off)
 - [Branch protection rules](#branch-protection-rules)
+- [Local pre-commit setup](#local-pre-commit-setup)
 - [Merge strategy](#merge-strategy)
 - [Reporting bugs](#reporting-bugs)
 - [Suggesting features](#suggesting-features)
@@ -38,8 +39,14 @@ its terms.
 
 1. Fork the repo and clone your fork.
 2. Install dev dependencies: `pip install -e ".[dev]"`
-3. Run the test suite to confirm your environment works: `pytest -v`
-4. Create a branch for your change: `git checkout -b your-feature`
+3. Install the git hooks: `pre-commit install` (see
+   [Local pre-commit setup](#local-pre-commit-setup)).
+4. Run the test suite to confirm your environment works: `pytest`
+5. Create a branch for your change: `git checkout -b feat/short-description`
+   (see [Branching and commits](#branching-and-commits)).
+
+Architecture notes, code conventions and gotchas for working in the codebase
+live in [`CLAUDE.md`](../CLAUDE.md) at the repo root.
 
 ## Branching and commits
 
@@ -56,9 +63,16 @@ its terms.
   - `docs/short-description` — documentation only
   - `chore/short-description` — tooling, deps, CI, refactors without behavior
     change
-- **Commit messages.** Keep the subject line under ~72 characters, written in
-  the imperative mood ("Add X", not "Added X" or "Adds X"). Explain the *why*
-  in the body when the change is non-obvious.
+- **Commit messages and PR titles** use
+  [Conventional Commits](https://www.conventionalcommits.org/):
+  `type(scope): imperative summary`, lowercase after the colon, under ~72
+  characters. Types in use: `feat`, `fix`, `docs`, `chore`, `ci`. The scope is optional and names the area touched (`web`,
+  `docker`, `paths`, `deps`, …). Examples:
+  - `feat(webhooks): receive Chronary event.reminder pushes`
+  - `fix(docker): make the ollama dependency optional for Compose v5`
+
+  The **PR title matters most**: squash-merge uses it as the commit subject
+  on `main`. Explain the *why* in the body when the change is non-obvious.
 - **One logical change per commit** where practical. Squash fixups before
   requesting review.
 
@@ -68,7 +82,19 @@ its terms.
   than a sprawling refactor.
 - **Add or update tests** when you change behavior. PRs that change behavior
   without test coverage will usually be asked to add some.
-- **Run `pytest -v` locally** before pushing.
+- **Run the CI gates locally** before pushing — they are the same commands
+  CI runs:
+
+  ```sh
+  ruff check . && ruff format --check .   # lint + format
+  mypy src/sidekick                       # strict type check
+  pytest                                  # tests + 80% coverage floor
+  ```
+
+  `pytest --no-cov` skips the coverage gate while iterating.
+- **Adding a setting?** Every env var Sidekick reads must have an entry in
+  `src/sidekick/config_catalog.py`; `tests/test_config_catalog.py` fails
+  otherwise. Add it to `.env.example` too if operators should set it.
 - **Match the existing code style.** Where unclear, prefer readability over
   cleverness.
 - **Do not introduce new dependencies** without flagging them in the PR
@@ -138,9 +164,10 @@ expect; the live settings can be inspected at
 > code owners are added to [`CODEOWNERS`](CODEOWNERS), admin enforcement
 > should be turned on (`enforce_admins: true`).
 
-### Required status checks
+### Status checks
 
-Every PR must pass the following CI jobs before it can merge:
+CI runs these jobs on every PR (`.github/workflows/ci.yml`). They are the
+merge gate — don't merge with any of them red:
 
 | Job name              | What it runs                                     |
 | --------------------- | ------------------------------------------------ |
@@ -150,7 +177,15 @@ Every PR must pass the following CI jobs before it can merge:
 | `test (py3.12)`       | same, on Python 3.12                             |
 | `dependency-review`   | GitHub's dependency-review-action (PRs only)     |
 
-Apply these checks to branch protection via `gh api`:
+Two more workflows also run on every PR and on pushes to `main`. They are
+not part of the gate above, but a failure still needs fixing:
+
+| Workflow                 | Jobs                                          |
+| ------------------------ | --------------------------------------------- |
+| `security.yml`           | `pip-audit` (`--strict`, OSV database) and `bandit -r src/sidekick -ll -ii -c pyproject.toml` |
+| `codeql.yml`             | `Analyze (python)` — CodeQL, also weekly      |
+
+To enforce the gate jobs as required checks in branch protection:
 
 ```sh
 gh api -X PATCH repos/jaypetez/sidekick/branches/main/protection/required_status_checks \
@@ -164,21 +199,28 @@ gh api -X PATCH repos/jaypetez/sidekick/branches/main/protection/required_status
 
 ## Local pre-commit setup
 
-The repo ships a `.pre-commit-config.yaml` that mirrors the lint + format
-checks CI runs, so contributors catch issues before pushing:
+The repo ships a `.pre-commit-config.yaml` that mirrors CI's lint, format
+and security checks, so you catch issues before pushing:
 
 ```sh
 pip install -e ".[dev]"
-pre-commit install
+pre-commit install                        # commit-stage hooks
+pre-commit install --hook-type pre-push   # pip-audit on push
 ```
 
-After that, `ruff check --fix` and `ruff format` run automatically on every
-commit.
+| Stage      | Hooks                                                      |
+| ---------- | ---------------------------------------------------------- |
+| commit     | `ruff --fix`, `ruff-format`, `bandit` (same flags as CI)   |
+| pre-push   | `pip-audit --strict --vulnerability-service osv`           |
+
+`pip-audit` queries the OSV database, so the pre-push hook needs network
+access. mypy and pytest are not hooks; run them yourself before pushing.
 
 ## Merge strategy
 
 - **Squash and merge** is the default for feature branches. The squashed
-  commit message should match the PR title and link to the PR (`(#123)`).
+  commit subject is the PR title plus the PR number, e.g.
+  `fix(paths): honor SIDEKICK_CONFIG_DIR for every state file (#157)`.
 - **Rebase and merge** is acceptable when the branch's commit history is
   already clean and each commit stands on its own.
 - **Merge commits are disabled** to preserve linear history on `main`.
@@ -216,9 +258,17 @@ doesn't fit the project's direction.
 
 ## Releases
 
-- Releases are cut from `main` by a maintainer.
-- Tags follow [Semantic Versioning](https://semver.org/): `MAJOR.MINOR.PATCH`.
-- Release notes are generated from merged PRs since the previous tag.
+Releasing is "push a tag"; everything else is automated.
+
+- A maintainer tags a commit on `main` as `vX.Y.Z`
+  ([Semantic Versioning](https://semver.org/)) and pushes the tag:
+  `git tag v0.2.0 && git push origin v0.2.0`.
+- The package version comes from that tag via `hatch-vcs`; there is no
+  hardcoded version to bump.
+- [`release.yml`](workflows/release.yml) then creates the GitHub Release with
+  notes generated from merged PRs since the previous tag, and builds and
+  pushes the container image to GHCR as
+  `ghcr.io/jaypetez/sidekick:{X.Y.Z, X.Y, latest}`.
 
 ## Maintainers
 

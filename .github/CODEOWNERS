@@ -10,5 +10,6 @@
 
 # Community health, security, and contribution policy.
 /.github/               @jaypetez
-/SECURITY.md            @jaypetez
+/.github/SECURITY.md    @jaypetez
+/docs/security.md       @jaypetez
 /LICENSE                @jaypetez
