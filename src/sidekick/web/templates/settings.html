@@ -80,12 +80,21 @@
   <div class="field">
     <label for="morning-time">Morning reminder time</label>
     <input id="morning-time" type="text" name="MORNING_REMINDER_TIME" placeholder="07:30">
-    <p class="hint">HH:MM 24-hour. Applies on next bot restart.</p>
+    <p class="hint">HH:MM 24-hour. Applies immediately.</p>
   </div>
   <div class="field">
     <label for="pre-event-minutes">Pre-event reminder (minutes)</label>
     <input id="pre-event-minutes" type="number" name="PRE_EVENT_REMINDER_MINUTES" min="0" placeholder="30">
-    <p class="hint">Applies on next bot restart.</p>
+    <p class="hint">0 turns pre-event reminders off. Applies immediately in polling mode; in webhook mode re-run <code>sidekick-webhook register</code> to update Chronary's lead time.</p>
+  </div>
+  <div class="field">
+    <label for="pre-event-source">Pre-event reminder source</label>
+    <select id="pre-event-source" name="PRE_EVENT_SOURCE">
+      <option value="">Default (polling)</option>
+      <option value="poll">Polling — check the calendar every 5 minutes</option>
+      <option value="webhook">Chronary webhooks — pushed at the exact time</option>
+    </select>
+    <p class="hint">Webhooks need a public HTTPS URL for this dashboard and a registered webhook (<code>sidekick-webhook register</code>). Switching applies immediately.</p>
   </div>
 
   <div class="settings-actions">

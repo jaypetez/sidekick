@@ -270,6 +270,24 @@ You can run Sidekick in a group instead of (or alongside) a 1:1 DM — handy for
 
 Morning summaries and pre-event alerts need a destination chat. Send `/get_id` to the bot in the chat you want them delivered to, then set `REMINDER_CHAT_ID` to the value it prints and restart. Leave it unset to skip reminders entirely.
 
+### Push reminders from Chronary (optional)
+
+By default Sidekick checks the calendar every 5 minutes for events starting within `PRE_EVENT_REMINDER_MINUTES`. Chronary can instead **push** a signed `event.reminder` webhook at exactly the right time, so there's no polling lag, no midnight blind spot, and no repeats after a restart.
+
+This needs a **public HTTPS URL** that reaches the dashboard's `/webhooks/chronary` route. Chronary refuses private or localhost addresses. A tunnel such as Cloudflare Tunnel, Tailscale Funnel or ngrok, or a reverse proxy, works. Expose only that one path. The route checks Chronary's HMAC signature itself, so it skips the dashboard's login, CSRF and Host checks, and the rest of the dashboard stays private.
+
+```bash
+sidekick-webhook register --url https://hooks.example.com/webhooks/chronary
+# The signing secret is saved (0600) to $SIDEKICK_CONFIG_DIR/chronary_webhook.secret,
+# never printed. Paste the printed CHRONARY_WEBHOOK_ID into .env, restart, then
+# set "Pre-event reminder source" to "Chronary webhooks" on the settings page
+# (or PRE_EVENT_SOURCE=webhook in .env).
+sidekick-webhook test     # sends a signed test reminder through the whole path
+sidekick-webhook status   # active? deactivated reason? recent deliveries
+```
+
+`register` also sets the calendar's default reminder to `PRE_EVENT_REMINDER_MINUTES`. The route returns 404 until a signing secret is configured (that file, or `CHRONARY_WEBHOOK_SECRET` to override it). `GET /api/health` reports when the last delivery arrived, so you can tell if the tunnel goes down. To go back to polling, run `sidekick-webhook delete` and set the source back to polling.
+
 ---
 
 ## Adding Slack

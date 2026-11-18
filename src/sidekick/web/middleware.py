@@ -31,6 +31,7 @@ from .auth import (
     is_login_path,
     is_public_path,
     is_session_authenticated,
+    is_webhook_path,
 )
 
 logger = logging.getLogger(__name__)
@@ -103,8 +104,11 @@ async def host_check_middleware(
     ``Host``, so pinning Host to known names closes the hole. With auth on,
     the rebound origin has neither the session cookie nor the bearer token,
     so the check is unnecessary (and would get in the way of reverse proxies).
+
+    Webhook paths are exempt: a tunnel delivers them with its *public*
+    hostname, and they authenticate by signature, not by being same-origin.
     """
-    if get_auth_token() is None:
+    if get_auth_token() is None and not is_webhook_path(request.path):
         host = _host_without_port(request.headers.get("Host", ""))
         if host not in allowed_hosts():
             logger.warning("Rejected request with unexpected Host header %r", host)
@@ -154,6 +158,7 @@ async def csrf_middleware(
     if (
         request.method in STATE_CHANGING_METHODS
         and not is_public_path(request.path)
+        and not is_webhook_path(request.path)
         and not _has_valid_bearer(request)
     ):
         session = await get_session(request)
@@ -188,7 +193,12 @@ async def auth_middleware(
     contract.
     """
     expected = get_auth_token()
-    if expected is None or is_public_path(request.path) or is_login_path(request.path):
+    if (
+        expected is None
+        or is_public_path(request.path)
+        or is_login_path(request.path)
+        or is_webhook_path(request.path)
+    ):
         return await handler(request)
 
     session = await get_session(request)

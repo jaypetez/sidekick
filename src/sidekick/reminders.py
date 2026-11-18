@@ -79,14 +79,24 @@ def setup_scheduler(bot: Bot | None, mcp_session: ClientSession) -> AsyncIOSched
         logger.info("Morning summary scheduled at %s %s", morning_time, tz)
 
         if pre_event_minutes > 0:
+            # Registered even in webhook mode (paused) so switching
+            # PRE_EVENT_SOURCE back to "poll" in settings applies live.
+            polling = runtime_config.pre_event_source() == "poll"
             scheduler.add_job(
                 send_pre_event_reminders,
                 IntervalTrigger(minutes=5),
                 args=[bot, mcp_session, reminder_chat_id, pre_event_minutes],
                 id="pre_event_check",
                 name="Pre-event reminder check",
+                **({} if polling else {"next_run_time": None}),
             )
-            logger.info("Pre-event check every 5 min (%d min warning)", pre_event_minutes)
+            if polling:
+                logger.info("Pre-event check every 5 min (%d min warning)", pre_event_minutes)
+            else:
+                logger.info(
+                    "Pre-event reminders come from Chronary webhooks "
+                    "(PRE_EVENT_SOURCE=webhook); polling job is paused"
+                )
     else:
         logger.warning(
             "REMINDER_CHAT_ID not set — morning summary and pre-event reminders disabled. "
@@ -126,11 +136,13 @@ def apply_builtin_settings(scheduler: AsyncIOScheduler) -> list[str]:
         )
 
     minutes = _pre_event_minutes()
+    polling = minutes > 0 and runtime_config.pre_event_source() == "poll"
     job = scheduler.get_job("pre_event_check")
     if job is None:
-        if minutes > 0:
+        if polling:
             pending.append("PRE_EVENT_REMINDER_MINUTES")
-    elif minutes == 0:
+    elif not polling:
+        # Lead time 0, or Chronary webhooks deliver pre-event reminders now.
         scheduler.pause_job("pre_event_check")
     else:
         bot, mcp_session, chat_id = job.args[:3]
