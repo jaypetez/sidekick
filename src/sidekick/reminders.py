@@ -13,6 +13,7 @@ import json
 import logging
 import os
 import time
+import uuid
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -285,8 +286,11 @@ async def send_custom_reminder(agent: "SidekickAgent", message: str) -> None:
     if bot is None:
         logger.warning("Agent has no bot attached — skipping reminder: %s", message)
         return
+    # A fresh history key per run: two reminders firing at the same minute
+    # must not share (and interleave) one conversation.
+    run_chat_id = f"{_REMINDER_CHAT_ID}:{uuid.uuid4().hex}"
     try:
-        response = await agent.process_message(_REMINDER_CHAT_ID, message)
+        response = await agent.process_message(run_chat_id, message)
         await bot.send_message(chat_id=chat_id, text=response, parse_mode="Markdown")
     except Exception:
         logger.exception("Agent failed to process reminder, sending raw message")
@@ -295,7 +299,7 @@ async def send_custom_reminder(agent: "SidekickAgent", message: str) -> None:
         except Exception:
             logger.exception("Failed to send fallback reminder to chat %s", chat_id)
     finally:
-        agent.clear_history(_REMINDER_CHAT_ID)
+        agent.clear_history(run_chat_id)
 
 
 def add_reminder(

@@ -160,16 +160,146 @@ async def test_process_message_unexpected_stop_reason_returns_text():
     )
     agent = _make_agent(llm=llm)
     reply = await agent.process_message(42, "hi")
-    assert reply == "Truncated reply."
+    assert reply.startswith("Truncated reply.")
+    assert "cut off" in reply
+    # The truncated turn is kept, ending with an assistant message.
+    assert agent.conversation_history[42][-1] == {"role": "assistant", "content": reply}
 
 
 @pytest.mark.asyncio
 async def test_process_message_unexpected_stop_reason_with_no_text():
     llm = MagicMock()
-    llm.chat = AsyncMock(return_value=SimpleNamespace(stop_reason="max_tokens", content=[]))
+    llm.chat = AsyncMock(return_value=SimpleNamespace(stop_reason="refusal", content=[]))
     agent = _make_agent(llm=llm)
     reply = await agent.process_message(42, "hi")
     assert reply == "(no response)"
+    assert agent.conversation_history[42][-1]["role"] == "assistant"
+
+
+@pytest.mark.asyncio
+async def test_max_tokens_drops_partial_tool_use():
+    """A tool_use cut off mid-generation has no result; keeping it would make
+    the next request fail with a 400."""
+    llm = MagicMock()
+    llm.chat = AsyncMock(
+        return_value=SimpleNamespace(
+            stop_reason="max_tokens",
+            content=[
+                SimpleNamespace(type="text", text="Adding those"),
+                SimpleNamespace(type="tool_use", id="t9", name="add_tasks", input={}),
+            ],
+        )
+    )
+    agent = _make_agent(llm=llm)
+    await agent.process_message(42, "add 40 things")
+    last = agent.conversation_history[42][-1]
+    assert last["role"] == "assistant"
+    assert isinstance(last["content"], str)
+
+
+@pytest.mark.asyncio
+async def test_tool_loop_is_capped():
+    """A model that never stops calling tools must not loop forever."""
+    from sidekick.agent import MAX_TOOL_ITERATIONS
+
+    llm = MagicMock()
+    llm.chat = AsyncMock(return_value=_tool_use_response("list_events", {}))
+    agent = _make_agent(llm=llm)
+    agent.session.call_tool = AsyncMock(return_value=SimpleNamespace(content=[]))
+
+    reply = await agent.process_message(42, "loop please")
+
+    assert llm.chat.await_count == MAX_TOOL_ITERATIONS
+    assert "too many tool calls" in reply
+    history = agent.conversation_history[42]
+    assert history[-1]["role"] == "assistant"
+    # Every tool_use in history still has its tool_result right after it.
+    for i, msg in enumerate(history):
+        if msg["role"] == "assistant" and isinstance(msg["content"], list):
+            assert history[i + 1]["role"] == "user"
+            assert history[i + 1]["content"][0]["type"] == "tool_result"
+
+
+@pytest.mark.asyncio
+async def test_failure_mid_tool_exchange_leaves_history_untouched():
+    """Rate limit on the *second* LLM call (after a tool ran) used to leave a
+    dangling tool_use in history once trimming had shifted the snapshot."""
+    from sidekick.agent import MAX_HISTORY_TURNS
+
+    llm = MagicMock()
+    llm.chat = AsyncMock(
+        side_effect=[_tool_use_response("list_events", {}), RuntimeError("rate limited")]
+    )
+    agent = _make_agent(llm=llm)
+    agent.session.call_tool = AsyncMock(return_value=SimpleNamespace(content=[]))
+    full = []
+    for i in range(MAX_HISTORY_TURNS):
+        full += [{"role": "user", "content": f"q{i}"}, {"role": "assistant", "content": f"a{i}"}]
+    agent.conversation_history[42] = list(full)
+
+    with pytest.raises(RuntimeError):
+        await agent.process_message(42, "one more")
+
+    assert agent.conversation_history[42] == full
+
+
+@pytest.mark.asyncio
+async def test_concurrent_turns_on_one_chat_do_not_interleave():
+    """Two overlapping messages on one chat run one after the other."""
+    import asyncio
+
+    gate = asyncio.Event()
+    calls: list[str] = []
+
+    async def chat(**kwargs):
+        user_msgs = [m for m in kwargs["messages"] if isinstance(m.get("content"), str)]
+        calls.append(user_msgs[-1]["content"])
+        if len(calls) == 1:
+            await gate.wait()
+        return _text_response(f"re: {calls[-1]}")
+
+    llm = MagicMock()
+    llm.chat = chat
+    agent = _make_agent(llm=llm)
+
+    first = asyncio.create_task(agent.process_message(42, "first"))
+    await asyncio.sleep(0)
+    second = asyncio.create_task(agent.process_message(42, "second"))
+    await asyncio.sleep(0.05)
+    assert calls == ["first"]  # second is waiting on the chat lock
+    gate.set()
+    assert await first == "re: first"
+    assert await second == "re: second"
+
+    roles = [m["role"] for m in agent.conversation_history[42]]
+    assert roles == ["user", "assistant", "user", "assistant"]
+
+
+@pytest.mark.asyncio
+async def test_reset_during_turn_wins():
+    """/reset while a turn is in flight must not be undone by that turn."""
+    import asyncio
+
+    gate = asyncio.Event()
+
+    async def chat(**kwargs):
+        await gate.wait()
+        return _text_response("done")
+
+    llm = MagicMock()
+    llm.chat = chat
+    agent = _make_agent(llm=llm)
+    agent.conversation_history[42] = [
+        {"role": "user", "content": "old"},
+        {"role": "assistant", "content": "old reply"},
+    ]
+
+    task = asyncio.create_task(agent.process_message(42, "new"))
+    await asyncio.sleep(0)
+    agent.clear_history(42)
+    gate.set()
+    await task
+    assert 42 not in agent.conversation_history
 
 
 @pytest.mark.asyncio

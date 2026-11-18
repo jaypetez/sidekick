@@ -81,6 +81,71 @@ def test_trim_history_preserves_structure():
     assert history[0]["role"] == "user"
 
 
+def _tool_turn(i: int) -> list[dict]:
+    """One user turn that used a tool: user, tool_use, tool_result, reply."""
+    return [
+        {"role": "user", "content": f"q{i}"},
+        {"role": "assistant", "content": [{"type": "tool_use", "id": f"t{i}"}]},
+        {"role": "user", "content": [{"type": "tool_result", "tool_use_id": f"t{i}"}]},
+        {"role": "assistant", "content": f"a{i}"},
+    ]
+
+
+def test_trim_history_never_orphans_tool_result():
+    """Regression: trimming used to count tool_result messages as turns and
+    cut between a tool_use and its result, so history[0] became a
+    tool_result — a guaranteed 400 that wiped the chat."""
+    from sidekick.agent import MAX_HISTORY_TURNS
+
+    agent = _make_agent()
+    history = [m for i in range(MAX_HISTORY_TURNS + 3) for m in _tool_turn(i)]
+    agent._trim_history(history)
+
+    assert history[0] == {"role": "user", "content": "q3"}
+    assert sum(1 for m in history if isinstance(m["content"], str) and m["role"] == "user") == (
+        MAX_HISTORY_TURNS
+    )
+    ids_used = {
+        m["content"][0]["id"]
+        for m in history
+        if m["role"] == "assistant" and isinstance(m["content"], list)
+    }
+    ids_answered = {
+        m["content"][0]["tool_use_id"]
+        for m in history
+        if m["role"] == "user" and isinstance(m["content"], list)
+    }
+    assert ids_used == ids_answered
+
+
+def test_trim_history_tool_heavy_chat_keeps_twenty_real_turns():
+    """Tool exchanges don't eat into the turn budget any more."""
+    from sidekick.agent import MAX_HISTORY_TURNS
+
+    agent = _make_agent()
+    history = [m for i in range(MAX_HISTORY_TURNS) for m in _tool_turn(i)]
+    before = list(history)
+    agent._trim_history(history)
+    assert history == before
+
+
+def test_trim_history_drops_leading_orphans():
+    agent = _make_agent()
+    history = [
+        {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "x"}]},
+        {"role": "assistant", "content": "stale"},
+        {"role": "user", "content": "real"},
+        {"role": "assistant", "content": "reply"},
+    ]
+    agent._trim_history(history)
+    # Under the turn limit, so nothing is cut by count — but a leading
+    # orphan before the first real turn is still not a valid start.
+    assert history == [
+        {"role": "user", "content": "real"},
+        {"role": "assistant", "content": "reply"},
+    ]
+
+
 # -------------------------------------------------------------------
 # _handle_reminder_tool
 # -------------------------------------------------------------------
