@@ -9,7 +9,7 @@ import pytest
 
 from sidekick.cli import main as cli_main
 
-from .conftest import envelope_err, envelope_ok
+from .conftest import CSRF_TOKEN, envelope_err, envelope_ok
 
 
 def _stub_handler(response_data, status: int = 200, error_envelope=None):
@@ -27,6 +27,8 @@ def _run(argv, response_data=None, *, status=200, error_envelope=None):
     captured: list[httpx.Request] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/_csrf":
+            return httpx.Response(200, json={"csrf": CSRF_TOKEN})
         captured.append(request)
         if error_envelope is not None:
             return httpx.Response(status, json=error_envelope)
@@ -37,7 +39,7 @@ def _run(argv, response_data=None, *, status=200, error_envelope=None):
     real_init = cli_main.ApiClient.__init__
 
     def patched_init(self, *, base_url=None, timeout=15.0):
-        real_init(self, base_url=base_url or "http://test", timeout=timeout)
+        real_init(self, base_url=base_url or "http://test", timeout=timeout, token="")
         self._client.close()
         self._client = httpx.Client(base_url=self.base_url, transport=transport)
 

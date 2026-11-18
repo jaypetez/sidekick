@@ -9,6 +9,8 @@ import pytest_asyncio
 
 from sidekick.web import make_app
 
+from .conftest import CsrfClient
+
 
 @pytest.fixture
 def task_store():
@@ -25,7 +27,8 @@ def task_store():
 
 @pytest_asyncio.fixture
 async def tasks_client(aiohttp_client, bot_data, task_store):
-    return await aiohttp_client(make_app(bot_data=bot_data, task_store=task_store))
+    inner = await aiohttp_client(make_app(bot_data=bot_data, task_store=task_store))
+    return CsrfClient(inner)
 
 
 @pytest.mark.asyncio

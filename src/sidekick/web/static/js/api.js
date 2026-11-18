@@ -16,8 +16,29 @@ export class ApiError extends Error {
   }
 }
 
+const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
+let csrfToken = null;
+
+// The server rejects state-changing requests without a CSRF token. Pages
+// rendered from base.html carry it in <meta name="csrf-token">; fall back
+// to the /_csrf endpoint for anything that doesn't.
+async function getCsrfToken() {
+  if (csrfToken) return csrfToken;
+  const meta = document.querySelector('meta[name="csrf-token"]');
+  if (meta && meta.content) {
+    csrfToken = meta.content;
+    return csrfToken;
+  }
+  const resp = await fetch("/_csrf", { credentials: "same-origin" });
+  csrfToken = (await resp.json()).csrf;
+  return csrfToken;
+}
+
 export async function apiFetch(path, { method = "GET", body, headers = {} } = {}) {
-  const init = { method, headers: { ...headers } };
+  const init = { method, headers: { ...headers }, credentials: "same-origin" };
+  if (!SAFE_METHODS.has(method.toUpperCase())) {
+    init.headers["X-CSRF-Token"] = await getCsrfToken();
+  }
   if (body !== undefined) {
     init.headers["Content-Type"] = "application/json";
     init.body = typeof body === "string" ? body : JSON.stringify(body);

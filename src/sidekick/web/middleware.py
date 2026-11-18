@@ -86,13 +86,32 @@ async def _extract_csrf_candidate(request: web.Request) -> str | None:
     return None
 
 
+def _has_valid_bearer(request: web.Request) -> bool:
+    """True when auth is enabled and the request's bearer token matches it."""
+    expected = get_auth_token()
+    if expected is None:
+        return False
+    candidate = extract_bearer(request.headers.get("Authorization"))
+    return candidate is not None and constant_time_equals(expected, candidate)
+
+
 @web.middleware
 async def csrf_middleware(
     request: web.Request,
     handler: Callable[[web.Request], Awaitable[web.StreamResponse]],
 ) -> web.StreamResponse:
-    """Reject state-changing requests that don't echo a valid CSRF token."""
-    if request.method in STATE_CHANGING_METHODS and not is_public_path(request.path):
+    """Reject state-changing requests that don't echo a valid CSRF token.
+
+    Requests that carry a *valid* ``Authorization: Bearer`` token skip the
+    check: browsers never attach that header cross-site, so it is not an
+    ambient credential and CSRF does not apply. API clients (the CLI,
+    scripts) authenticate that way instead of scraping a CSRF token.
+    """
+    if (
+        request.method in STATE_CHANGING_METHODS
+        and not is_public_path(request.path)
+        and not _has_valid_bearer(request)
+    ):
         session = await get_session(request)
         candidate = await _extract_csrf_candidate(request)
         if not csrf.validate_token(session, candidate):

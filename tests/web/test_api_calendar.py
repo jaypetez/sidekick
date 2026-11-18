@@ -9,6 +9,8 @@ import pytest_asyncio
 
 from sidekick.web import make_app
 
+from .conftest import CsrfClient
+
 
 @pytest.fixture
 def calendar_provider():
@@ -24,7 +26,8 @@ def calendar_provider():
 
 @pytest_asyncio.fixture
 async def cal_client(aiohttp_client, bot_data, calendar_provider):
-    return await aiohttp_client(make_app(bot_data=bot_data, calendar_provider=calendar_provider))
+    inner = await aiohttp_client(make_app(bot_data=bot_data, calendar_provider=calendar_provider))
+    return CsrfClient(inner)
 
 
 @pytest.mark.asyncio
