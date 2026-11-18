@@ -46,8 +46,8 @@ DESTRUCTIVE_TOOLS = frozenset(
     {
         "delete_event",
         "delete_task_list",
-        "delete_task_item",
-        "clear_completed_items",
+        "delete_task",
+        "clear_completed",
         "remove_reminder",
     }
 )
