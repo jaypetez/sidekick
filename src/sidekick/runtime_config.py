@@ -116,6 +116,24 @@ def get(key: str, default: str | None = None) -> str | None:
     return os.environ.get(key, default)
 
 
+SOURCE_OVERRIDE: Final = "override"
+SOURCE_ENV: Final = "env"
+SOURCE_DEFAULT: Final = "default"
+
+
+def source(key: str) -> str:
+    """Where ``get(key)`` resolves from: ``override``, ``env`` or ``default``.
+
+    ``default`` means neither layer has a value, so the caller's built-in
+    default (if any) applies.
+    """
+    if key in _load():
+        return SOURCE_OVERRIDE
+    if key in os.environ:
+        return SOURCE_ENV
+    return SOURCE_DEFAULT
+
+
 def get_bool(key: str, default: bool = False) -> bool:
     raw = get(key)
     if raw is None:

@@ -39,6 +39,22 @@ def snapshot(*, redacted: bool = True) -> dict[str, Any]:
     return runtime_config.as_dict(redacted=redacted)
 
 
+def sources() -> dict[str, str]:
+    """Where each editable key's value comes from: override / env / default."""
+    return {key: runtime_config.source(key) for key in sorted(runtime_config.EDITABLE_KEYS)}
+
+
+def defaults() -> dict[str, str | None]:
+    """Built-in default for each editable key (``None`` = no default)."""
+    from ..config_catalog import get_spec
+
+    out: dict[str, str | None] = {}
+    for key in sorted(runtime_config.EDITABLE_KEYS):
+        spec = get_spec(key)
+        out[key] = spec.default if spec is not None else None
+    return out
+
+
 # Keys the built-in reminder jobs read; saving one re-applies them live.
 _REMINDER_KEYS = frozenset(
     {"MORNING_REMINDER_TIME", "PRE_EVENT_REMINDER_MINUTES", "PRE_EVENT_SOURCE"}

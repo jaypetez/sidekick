@@ -28,6 +28,8 @@ async def index(request: web.Request) -> web.Response:
     return ok(
         {
             "settings": settings_service.snapshot(redacted=True),
+            "sources": settings_service.sources(),
+            "defaults": settings_service.defaults(),
             "editable_keys": sorted(runtime_config.EDITABLE_KEYS),
             "secret_keys": sorted(runtime_config.SECRET_KEYS & runtime_config.EDITABLE_KEYS),
             "personality": personality_info,
@@ -69,6 +71,7 @@ async def update(request: web.Request) -> web.Response:
         {
             **result,
             "settings": settings_service.snapshot(redacted=True),
+            "sources": settings_service.sources(),
         }
     )
 

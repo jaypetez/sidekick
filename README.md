@@ -212,11 +212,12 @@ Full reference: [`.env.example`](.env.example).
 Sidekick ships an in-process web UI at **http://127.0.0.1:8080** for the operator. It runs alongside the Telegram/Slack adapters on the same event loop — and when no Telegram token is set, it stands alone as the only chat surface. The pages:
 
 - **Chat** — converse with the agent right in the browser; uses the same `SidekickAgent` as Telegram/Slack
-- **Dashboard** — at-a-glance health tiles (scheduler, MCP, reminder count, tool count) + active personality
+- **Dashboard** — at-a-glance health tiles (scheduler, MCP, reminder count, tool count, active LLM, platforms), version + uptime, and the active personality
 - **Reminders** — create, pause, resume, or delete; built-in jobs (morning summary, pre-event check) can be paused but not removed
 - **Tasks** — browse every list, add/complete/delete items, clear completed, drop a whole list
 - **Calendar** — view upcoming events in a configurable window, create / edit / delete events
-- **Settings** — switch personality (same presets the `/personality` chat command exposes) and edit runtime settings: LLM provider/model, Ollama tuning, timezone, morning-summary time and pre-event lead time. Saved changes go to `runtime.json` in the config dir and override `.env`; LLM changes reload the client immediately, reminder times apply to the live jobs, and a `TIMEZONE` change takes effect after a restart. API keys are write-only (only the last 4 characters are ever shown).
+- **Settings** — switch personality (same presets the `/personality` chat command exposes) and edit runtime settings: LLM provider/model, Ollama tuning, timezone, morning-summary time and pre-event lead time. Saved changes go to `runtime.json` in the config dir and override `.env`; LLM changes reload the client immediately, reminder times apply to the live jobs, and a `TIMEZONE` change takes effect after a restart. API keys are write-only (only the last 4 characters are ever shown). Each field shows where its value comes from — `override` (this page), `from .env`, or `default` — and overrides have a **Reset** button that drops back to `.env` / the default.
+- **System** — read-only view of how this Sidekick is set up: component status, version/uptime, LLM in use, Telegram/Slack state, web bind + auth posture, reminder delivery, file paths, and **every** setting Sidekick reads, grouped, with its effective value and source. Secrets only ever show as set / not set.
 - **Health** — JSON `/health` endpoint reports scheduler + MCP subprocess liveness for monitoring
 
 The dashboard is enabled by default and binds to localhost only — no auth, no remote exposure. To reach it remotely, SSH-tunnel (`ssh -L 8080:127.0.0.1:8080 …`) or use Tailscale/WireGuard.
@@ -226,7 +227,9 @@ The dashboard is enabled by default and binds to localhost only — no auth, no 
 ```bash
 sidekick-cli tasks list
 sidekick-cli events list --days 7
-sidekick-cli settings set MORNING_REMINDER_TIME=06:45
+sidekick-cli settings set MORNING_REMINDER_TIME 06:45
+sidekick-cli system status
+sidekick-cli system config --group LLM
 sidekick-cli chat send "what's on tomorrow?"
 ```
 

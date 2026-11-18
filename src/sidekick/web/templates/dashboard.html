@@ -1,7 +1,10 @@
 {% extends "base.html" %}
 {% block title %}Dashboard{% endblock %}
 {% block content %}
-<h1>Dashboard</h1>
+<div class="page-head">
+  <h1>Dashboard</h1>
+  <p class="muted">Sidekick {{ info.version }} · up {{ uptime }} · <a href="/system">System details</a></p>
+</div>
 
 <section class="tiles">
   <article class="tile">
@@ -23,6 +26,21 @@
   <article class="tile">
     <h2>Tools loaded</h2>
     <p class="count">{{ tool_count }}</p>
+  </article>
+  <article class="tile">
+    <h2>LLM</h2>
+    {% if info.llm.provider %}
+    <p class="status ok">{{ info.llm.provider }}</p>
+    <p class="tile-detail"><code>{{ info.llm.model or 'unknown model' }}</code></p>
+    {% else %}
+    <p class="status down">Not ready</p>
+    {% endif %}
+  </article>
+  <article class="tile">
+    <h2>Platforms</h2>
+    <p class="tile-detail">Telegram: {{ info.platforms.telegram }}</p>
+    <p class="tile-detail">Slack: {{ info.platforms.slack }}</p>
+    <p class="tile-detail">Web: {{ 'local only' if info.web.loopback else 'network' }}</p>
   </article>
 </section>
 

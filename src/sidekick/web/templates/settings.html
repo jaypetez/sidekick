@@ -22,7 +22,8 @@
 <form id="settings-form" class="settings-card" style="margin-top:24px">
   <h2>LLM provider</h2>
   <div class="field">
-    <div class="radio-group">
+    <label>Provider</label>
+    <div class="radio-group" role="radiogroup" aria-label="LLM provider">
       <label><input type="radio" name="LLM_PROVIDER" value="anthropic"> Anthropic (Claude, cloud)</label>
       <label><input type="radio" name="LLM_PROVIDER" value="ollama"> Ollama (local)</label>
     </div>

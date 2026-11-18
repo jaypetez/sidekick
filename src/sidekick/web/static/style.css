@@ -42,6 +42,7 @@ h2 { font-size: 14px; color: var(--muted); margin: 0 0 8px; text-transform: uppe
 .tile .count { font-size: 28px; font-weight: 700; margin: 0; }
 .status.ok { color: var(--ok); font-weight: 600; }
 .status.down { color: var(--down); font-weight: 600; }
+.status.neutral { color: var(--muted); font-weight: 600; }
 
 .personality-card {
   margin-top: 24px;
@@ -214,3 +215,35 @@ button.inline { padding: 2px 8px; font-size: 12px; }
 .form-status[data-kind="ok"] { color: var(--ok); }
 .form-status[data-kind="error"] { color: var(--down); }
 .form-status[data-kind="loading"] { color: var(--muted); font-style: italic; }
+
+/* --- System page + setting sources --------------------------------------- */
+:root { --warn: #e0af68; }
+.page-head { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; margin-bottom: 16px; }
+.page-head h1 { margin: 0; }
+.page-head .muted { margin: 0; }
+.tile-detail { margin: 4px 0 0; font-size: 12px; color: var(--muted); overflow-wrap: anywhere; }
+.detail-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px; margin-top: 24px; }
+.section-title { margin-top: 32px; }
+.kv { display: grid; grid-template-columns: max-content 1fr; gap: 6px 14px; margin: 0; }
+.kv dt { color: var(--muted); font-size: 12px; }
+.kv dd { margin: 0; overflow-wrap: anywhere; }
+.config-group { margin-top: 16px; overflow-x: auto; }
+.config-table td { vertical-align: top; }
+.config-table code.key { font-size: 11px; color: var(--muted); }
+.config-table td.value code { overflow-wrap: anywhere; }
+.config-table td.actions { white-space: nowrap; text-align: right; }
+.config-table .hint { display: block; color: var(--muted); font-size: 11px; }
+.badge {
+  display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 11px;
+  border: 1px solid var(--border); color: var(--muted); background: var(--bg); white-space: nowrap;
+}
+.badge.ok { color: var(--ok); border-color: var(--ok); }
+.badge.warn { color: var(--warn); border-color: var(--warn); }
+.badge.override { color: var(--accent); border-color: var(--accent); }
+.badge.env { color: var(--ok); border-color: var(--ok); }
+.field-meta { display: inline-flex; gap: 6px; align-items: center; margin-left: 8px; text-transform: none; }
+@media (max-width: 640px) {
+  .topbar { flex-wrap: wrap; }
+  .topbar nav { flex-wrap: wrap; gap: 12px; }
+  main { padding: 16px; }
+}

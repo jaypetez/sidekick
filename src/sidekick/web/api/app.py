@@ -18,6 +18,7 @@ from . import chat as chat_routes
 from . import health as health_routes
 from . import reminders as reminders_routes
 from . import settings as settings_routes
+from . import system as system_routes
 from . import tasks as tasks_routes
 from .envelope import error
 
@@ -70,6 +71,8 @@ def make_api_app() -> web.Application:
     api = web.Application(middlewares=[_envelope_errors])
 
     api.router.add_get("/health", health_routes.health, name="api.health")
+    api.router.add_get("/system", system_routes.overview, name="api.system")
+    api.router.add_get("/config", system_routes.config, name="api.config")
 
     api.router.add_get("/tasks", tasks_routes.index, name="api.tasks.index")
     api.router.add_get("/tasks/{list_name}", tasks_routes.detail, name="api.tasks.detail")
