@@ -51,10 +51,6 @@ source = "vcs"
 [tool.ruff]
 target-version = "py311"
 line-length = 100
-# Ruff >=0.16 formats Python blocks embedded in Markdown. This planning doc holds
-# deliberately partial snippets (a bare list element, a single `types.Tool(...)`
-# entry) that the formatter rewrites into tuples, corrupting the example code.
-extend-exclude = ["docs/plan-recipe-extraction.md"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "B", "UP", "W"]
