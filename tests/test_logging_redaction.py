@@ -62,3 +62,48 @@ def test_safe_repr_redacts() -> None:
     out = safe_repr("password=hunter2")
     assert "hunter2" not in out
     assert "[REDACTED]" in out
+
+
+_FAKE_BOT_TOKEN = "123456789:AAH4fakeFAKEfake_fake-FAKEfake1234567"
+
+
+def test_filter_redacts_bare_telegram_token_in_url(
+    caplog: pytest.LogCaptureFixture, redacted_root: logging.Logger
+) -> None:
+    """python-telegram-bot's URLs carry the token with no ``token=`` keyword."""
+    caplog.set_level(logging.INFO)
+    logging.getLogger("sidekick.test.redact").info(
+        "HTTP Request: POST %s", f"https://api.telegram.org/bot{_FAKE_BOT_TOKEN}/getUpdates"
+    )
+    assert "AAH4fake" not in caplog.text
+    assert "bot123456789:[REDACTED]" in caplog.text
+
+
+def test_filter_redacts_non_string_args(
+    caplog: pytest.LogCaptureFixture, redacted_root: logging.Logger
+) -> None:
+    """httpx passes an ``httpx.URL`` object, not a str, as the log arg."""
+    import httpx
+
+    caplog.set_level(logging.INFO)
+    url = httpx.URL(f"https://api.telegram.org/bot{_FAKE_BOT_TOKEN}/getMe")
+    logging.getLogger("sidekick.test.redact").info("HTTP Request: GET %s", url)
+    assert "AAH4fake" not in caplog.text
+
+
+def test_filter_keeps_numeric_args_intact(
+    caplog: pytest.LogCaptureFixture, redacted_root: logging.Logger
+) -> None:
+    caplog.set_level(logging.INFO)
+    logging.getLogger("sidekick.test.redact").info("retry %d of %d", 2, 5)
+    assert "retry 2 of 5" in caplog.text
+
+
+def test_httpx_logger_is_quiet_after_bot_import() -> None:
+    """Belt and braces: bot.py drops httpx below INFO so URLs never log."""
+    import os
+
+    os.environ.setdefault("TELEGRAM_BOT_TOKEN", "test-token-not-real")
+    import sidekick.bot  # noqa: F401
+
+    assert logging.getLogger("httpx").getEffectiveLevel() >= logging.WARNING

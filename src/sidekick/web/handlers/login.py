@@ -26,6 +26,7 @@ import aiohttp_jinja2
 from aiohttp import web
 from aiohttp_session import get_session
 
+from ...ratelimit import RateLimiter
 from ..auth import (
     clear_session_authentication,
     constant_time_equals,
@@ -34,8 +35,33 @@ from ..auth import (
     mark_session_authenticated,
     safe_next_url,
 )
+from ..helpers import client_ip
 
 logger = logging.getLogger(__name__)
+
+# Failed logins allowed per client address per window. The token is a
+# long random string, so this mostly stops log spam and makes online
+# guessing pointless rather than merely slow.
+_LOGIN_FAILURES_PER_WINDOW = 10
+_LOGIN_WINDOW_SECONDS = 300
+
+_login_limiter: RateLimiter | None = None
+
+
+def _get_login_limiter() -> RateLimiter:
+    global _login_limiter
+    if _login_limiter is None:
+        _login_limiter = RateLimiter(
+            max_requests=_LOGIN_FAILURES_PER_WINDOW,
+            window_seconds=_LOGIN_WINDOW_SECONDS,
+        )
+    return _login_limiter
+
+
+def reset_login_limiter() -> None:
+    """Test hook: forget all failed-login buckets."""
+    global _login_limiter
+    _login_limiter = None
 
 
 def _resolve_next(request: web.Request) -> str:
@@ -86,7 +112,17 @@ async def submit(request: web.Request) -> web.Response:
     candidate = str(raw_candidate).strip() if raw_candidate is not None else ""
 
     if not candidate or not constant_time_equals(expected, candidate):
-        logger.warning("Login attempt rejected (next=%s)", next_url)
+        ip = client_ip(request)
+        if not await _get_login_limiter().acquire(("login", ip)):
+            logger.warning("Login throttled for %s", ip)
+            response = aiohttp_jinja2.render_template(
+                "login.html",
+                request,
+                {"next_url": next_url, "error": "Too many attempts. Wait a few minutes."},
+            )
+            response.set_status(429)
+            return response
+        logger.warning("Login attempt rejected from %s (next=%s)", ip, next_url)
         response = aiohttp_jinja2.render_template(
             "login.html",
             request,

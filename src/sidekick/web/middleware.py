@@ -15,6 +15,7 @@
 from __future__ import annotations
 
 import logging
+import os
 from collections.abc import Awaitable, Callable
 from urllib.parse import quote as _urlquote
 
@@ -23,6 +24,7 @@ from aiohttp_session import get_session
 
 from . import csrf
 from .auth import (
+    LOOPBACK_HOSTS,
     constant_time_equals,
     extract_bearer,
     get_auth_token,
@@ -68,6 +70,48 @@ async def security_headers_middleware(
     headers.setdefault("Referrer-Policy", "no-referrer")
     headers.setdefault("Permissions-Policy", "()")
     return response
+
+
+def _host_without_port(host_header: str) -> str:
+    """``"localhost:8080"`` → ``"localhost"``; ``"[::1]:8080"`` → ``"::1"``."""
+    host = host_header.strip().lower()
+    if host.startswith("["):
+        return host[1:].split("]", 1)[0]
+    if host.count(":") == 1:
+        return host.split(":", 1)[0]
+    return host
+
+
+def allowed_hosts() -> frozenset[str]:
+    """Hostnames the dashboard answers to when it runs without auth."""
+    extra = os.getenv("SIDEKICK_WEB_ALLOWED_HOSTS", "")
+    configured = {h.strip().lower() for h in extra.split(",") if h.strip()}
+    return LOOPBACK_HOSTS | configured
+
+
+@web.middleware
+async def host_check_middleware(
+    request: web.Request,
+    handler: Callable[[web.Request], Awaitable[web.StreamResponse]],
+) -> web.StreamResponse:
+    """Reject requests whose ``Host`` isn't ours — DNS-rebinding defense.
+
+    Without an auth token the dashboard trusts anything that reaches its
+    loopback socket. A malicious page can rebind its own hostname to
+    127.0.0.1 and then make *same-origin* requests (read ``/_csrf``, POST
+    ``/chat``...). Those requests still carry the attacker's hostname in
+    ``Host``, so pinning Host to known names closes the hole. With auth on,
+    the rebound origin has neither the session cookie nor the bearer token,
+    so the check is unnecessary (and would get in the way of reverse proxies).
+    """
+    if get_auth_token() is None:
+        host = _host_without_port(request.headers.get("Host", ""))
+        if host not in allowed_hosts():
+            logger.warning("Rejected request with unexpected Host header %r", host)
+            raise web.HTTPMisdirectedRequest(
+                reason="Unrecognized Host — add it to SIDEKICK_WEB_ALLOWED_HOSTS"
+            )
+    return await handler(request)
 
 
 async def _extract_csrf_candidate(request: web.Request) -> str | None:

@@ -138,6 +138,9 @@ Per-chat history in `agent.py` (`conversation_history` dict). Keys are `int` for
 | `SIDEKICK_WEB_ENABLED` | `true` | No (set to `false` to skip the dashboard) |
 | `SIDEKICK_WEB_HOST` | `127.0.0.1` | No (bind interface for the dashboard) |
 | `SIDEKICK_WEB_PORT` | `8080` | No (bind port for the dashboard) |
+| `SIDEKICK_WEB_AUTH_TOKEN` | — | Required for non-loopback binds; ≥16 chars, placeholder refused |
+| `SIDEKICK_WEB_ALLOWED_HOSTS` | — | No (extra `Host` names accepted when auth is off; DNS-rebinding guard) |
+| `SIDEKICK_WEB_TRUST_PROXY` | `false` | No (honor `X-Forwarded-For` — only behind a proxy that sets it) |
 | `TIMEZONE` | `America/Chicago` | No |
 | `CLAUDE_MODEL` | `claude-haiku-4-5-20251001` | No |
 | `SIDEKICK_RUNTIME_CONFIG` | `$SIDEKICK_CONFIG_DIR/runtime.json` | No (settings-page overrides; wins over env) |

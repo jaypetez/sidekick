@@ -30,7 +30,9 @@ cp examples/01-local-ollama-docker/.env.example .env
 # 2. Generate a strong random token and paste it into SIDEKICK_WEB_AUTH_TOKEN.
 #    The web UI is bound to 0.0.0.0 inside the container (so the host can
 #    reach it via the published port) and the bot refuses to start a
-#    non-loopback dashboard without one.
+#    non-loopback dashboard without one. The placeholder value (or anything
+#    under 16 characters) is refused too — check `docker compose logs` for
+#    "Refusing to start web dashboard" if http://localhost:8080 won't load.
 #      *nix:    python -c "import secrets; print(secrets.token_urlsafe(32))"
 #      Windows: -join ((48..57)+(97..122)+(65..90) | Get-Random -Count 48 | %{[char]$_})
 

@@ -48,9 +48,24 @@ only intended user. The threat model assumes:
 - **Bind**: `127.0.0.1:8080` by default (`SIDEKICK_WEB_HOST` /
   `SIDEKICK_WEB_PORT` to override). Loopback-only means even a host on
   the LAN cannot reach it without explicit configuration.
-- **Authentication**: shared-secret token issued at first start, required
-  on every request.
-- **CSRF**: enforced on every state-changing POST.
+- **Authentication**: opt-in. With `SIDEKICK_WEB_AUTH_TOKEN` unset (the
+  loopback default) there is **no authentication** — anything that can
+  reach the socket is the operator. Binding to a non-loopback host refuses
+  to start without a token, and a placeholder or <16-character token is
+  refused too. With a token set, requests need `Authorization: Bearer
+  <token>` or a session cookie from `/login`. Sessions are bound to the
+  token (rotating it logs everyone out) and expire after 7 days; failed
+  logins are throttled per client address.
+- **DNS rebinding**: when auth is off, requests whose `Host` header isn't a
+  loopback name (or listed in `SIDEKICK_WEB_ALLOWED_HOSTS`) get `421`, so a
+  malicious page that rebinds its hostname to `127.0.0.1` can't drive the
+  dashboard from your browser.
+- **CSRF**: enforced on every state-changing request (`X-CSRF-Token` header
+  or `_csrf` form field). Requests with a valid bearer token are exempt —
+  browsers never attach that header cross-site.
+- **Rate limits**: per client address. `X-Forwarded-For` is ignored unless
+  `SIDEKICK_WEB_TRUST_PROXY=true` (set it only behind a reverse proxy that
+  overwrites the header).
 - **Headers**: `Cache-Control: no-store` on HTML responses,
   `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`.
 - **htmx**: loaded from CDN with a pinned SRI integrity hash so a

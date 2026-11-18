@@ -25,6 +25,9 @@ import os
 import time
 from dataclasses import dataclass
 
+# Prune idle buckets once this many distinct keys are tracked.
+_PRUNE_THRESHOLD = 1024
+
 
 @dataclass
 class _Bucket:
@@ -53,8 +56,12 @@ class RateLimiter:
 
     async def acquire(self, key: object) -> bool:
         """Try to consume one token for ``key``. Returns False if empty."""
-        now = time.monotonic()
         async with self._lock:
+            # Read the clock under the lock so concurrent callers can't
+            # refill a bucket with a timestamp older than its last update.
+            now = time.monotonic()
+            if len(self._buckets) >= _PRUNE_THRESHOLD:
+                self._prune(now)
             bucket = self._buckets.get(key)
             if bucket is None:
                 bucket = _Bucket(tokens=self._max, updated_at=now)
@@ -68,6 +75,24 @@ class RateLimiter:
                 bucket.tokens -= 1.0
                 return True
             return False
+
+    def _prune(self, now: float) -> None:
+        """Drop buckets idle long enough to have refilled completely.
+
+        A full bucket is indistinguishable from a missing one, so this never
+        changes a decision — it only stops one bucket per distinct caller
+        (IP, chat id...) from accumulating forever.
+        """
+        idle = [
+            key
+            for key, bucket in self._buckets.items()
+            if bucket.tokens + (now - bucket.updated_at) * self._refill_per_sec >= self._max
+        ]
+        for key in idle:
+            del self._buckets[key]
+
+    def __len__(self) -> int:
+        return len(self._buckets)
 
     def reset(self) -> None:
         """Drop all buckets — primarily a test hook."""
