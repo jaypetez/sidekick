@@ -54,6 +54,25 @@ async def send_safe(bot: Bot, chat_id: int, text: str, **kwargs: Any) -> Message
         return await bot.send_message(chat_id=chat_id, text=text, **kwargs)
 
 
+async def send_markdown_v2(
+    bot: Bot, chat_id: int, text_v2: str, *, plain_text: str, **kwargs: Any
+) -> Message:
+    """Send pre-formatted MarkdownV2, falling back to ``plain_text``.
+
+    For messages whose formatting we build ourselves (e.g. a bold event
+    title): the caller escapes the dynamic parts with :func:`escape_v2` and
+    keeps its own ``*bold*`` markers. If Telegram still rejects the entities,
+    ``plain_text`` is sent instead so the user always gets the message.
+    """
+    try:
+        return await bot.send_message(
+            chat_id=chat_id, text=text_v2, parse_mode=ParseMode.MARKDOWN_V2, **kwargs
+        )
+    except BadRequest:
+        logger.warning("Telegram rejected MarkdownV2 message; resending as plain text")
+        return await bot.send_message(chat_id=chat_id, text=plain_text, **kwargs)
+
+
 async def reply_safe(message: Message, text: str, **kwargs: Any) -> Message:
     """Reply to ``message`` using MarkdownV2, falling back to plain text."""
     escaped = escape_v2(text)

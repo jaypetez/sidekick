@@ -52,6 +52,7 @@ from .platforms.base import IncomingMessage  # noqa: E402
 from .ratelimit import get_default_limiter  # noqa: E402
 from .reminders import load_custom_reminders, setup_scheduler  # noqa: E402
 from .telegram_format import reply_safe  # noqa: E402
+from .util import watch_task  # noqa: E402
 from .web import make_app as make_web_app  # noqa: E402
 
 TELEGRAM_ALLOWED_ENV = "TELEGRAM_ALLOWED_USER_IDS"
@@ -309,8 +310,9 @@ async def _bootstrap_services(bot_data: dict[str, Any], bot: Bot | None) -> None
     session_ready = asyncio.Event()
     shutdown_event = bot_data.setdefault("shutdown_event", asyncio.Event())
 
-    mcp_task = asyncio.create_task(
-        _run_mcp_subprocess(params, session_ready, shutdown_event, bot_data)
+    mcp_task = watch_task(
+        asyncio.create_task(_run_mcp_subprocess(params, session_ready, shutdown_event, bot_data)),
+        "mcp-subprocess",
     )
     bot_data["mcp_task"] = mcp_task
 
@@ -345,7 +347,7 @@ async def _bootstrap_services(bot_data: dict[str, Any], bot: Bot | None) -> None
     load_custom_reminders(scheduler, agent)
 
     if os.getenv("SLACK_BOT_TOKEN") and os.getenv("SLACK_APP_TOKEN"):
-        slack_task = asyncio.create_task(_run_slack(bot_data, agent))
+        slack_task = watch_task(asyncio.create_task(_run_slack(bot_data, agent)), "slack")
         bot_data["slack_task"] = slack_task
         logger.info("Slack adapter enabled")
 
@@ -366,7 +368,7 @@ async def _bootstrap_services(bot_data: dict[str, Any], bot: Bot | None) -> None
         web_enabled = not web_disabled_via_env
 
     if web_enabled:
-        web_task = asyncio.create_task(_run_web(bot_data))
+        web_task = watch_task(asyncio.create_task(_run_web(bot_data)), "web-dashboard")
         bot_data["web_task"] = web_task
         logger.info("Web dashboard enabled")
 
