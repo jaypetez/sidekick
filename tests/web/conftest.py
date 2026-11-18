@@ -32,7 +32,8 @@ class CsrfClient:
     """Thin wrapper around aiohttp's TestClient that auto-injects CSRF.
 
     Delegates everything except ``post`` to the underlying client. ``post``
-    is wrapped to (a) lazily fetch a CSRF token on the first call and
+    and the other write verbs are
+    wrapped to (a) lazily fetch a CSRF token on the first call and
     (b) merge it into the form body and ``X-CSRF-Token`` header. Cookies
     set on the GET propagate to the POST via the shared TestClient
     cookie jar.
@@ -52,18 +53,28 @@ class CsrfClient:
             self._token = str(data["csrf"])
         return self._token
 
-    async def post(self, path: str, **kwargs: Any) -> Any:
+    async def _with_token(self, method: str, path: str, **kwargs: Any) -> Any:
         token = await self._ensure_token()
         data = kwargs.get("data")
         if isinstance(data, dict):
             kwargs["data"] = {**data, "_csrf": token}
-        else:
-            # FormData / bytes / None — fall back to header-only.
-            pass
+        # FormData / bytes / JSON / None rely on the header alone.
         headers = dict(kwargs.get("headers") or {})
         headers.setdefault("X-CSRF-Token", token)
         kwargs["headers"] = headers
-        return await self._inner.post(path, **kwargs)
+        return await getattr(self._inner, method)(path, **kwargs)
+
+    async def post(self, path: str, **kwargs: Any) -> Any:
+        return await self._with_token("post", path, **kwargs)
+
+    async def put(self, path: str, **kwargs: Any) -> Any:
+        return await self._with_token("put", path, **kwargs)
+
+    async def patch(self, path: str, **kwargs: Any) -> Any:
+        return await self._with_token("patch", path, **kwargs)
+
+    async def delete(self, path: str, **kwargs: Any) -> Any:
+        return await self._with_token("delete", path, **kwargs)
 
 
 @pytest.fixture

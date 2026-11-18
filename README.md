@@ -216,10 +216,21 @@ Sidekick ships an in-process web UI at **http://127.0.0.1:8080** for the operato
 - **Reminders** — create, pause, resume, or delete; built-in jobs (morning summary, pre-event check) can be paused but not removed
 - **Tasks** — browse every list, add/complete/delete items, clear completed, drop a whole list
 - **Calendar** — view upcoming events in a configurable window, create / edit / delete events
-- **Settings** — switch personality (same presets the `/personality` chat command exposes) and view a read-only env summary (tokens are excluded)
+- **Settings** — switch personality (same presets the `/personality` chat command exposes) and edit runtime settings: LLM provider/model, Ollama tuning, timezone, morning-summary time and pre-event lead time. Saved changes go to `runtime.json` in the config dir and override `.env`; LLM changes reload the client immediately, reminder times apply to the live jobs, and a `TIMEZONE` change takes effect after a restart. API keys are write-only (only the last 4 characters are ever shown).
 - **Health** — JSON `/health` endpoint reports scheduler + MCP subprocess liveness for monitoring
 
 The dashboard is enabled by default and binds to localhost only — no auth, no remote exposure. To reach it remotely, SSH-tunnel (`ssh -L 8080:127.0.0.1:8080 …`) or use Tailscale/WireGuard.
+
+**JSON API + CLI.** Everything the dashboard does is also exposed as JSON under `/api/*` (`{data, error}` envelope), and `sidekick-cli` wraps it for the terminal:
+
+```bash
+sidekick-cli tasks list
+sidekick-cli events list --days 7
+sidekick-cli settings set MORNING_REMINDER_TIME=06:45
+sidekick-cli chat send "what's on tomorrow?"
+```
+
+It talks to `http://127.0.0.1:${SIDEKICK_WEB_PORT}` (override with `SIDEKICK_API_URL`). When the dashboard requires auth, set `SIDEKICK_API_TOKEN` (it falls back to `SIDEKICK_WEB_AUTH_TOKEN`); bearer-authenticated requests don't need a CSRF token.
 
 **Docker caveat:** inside a container `127.0.0.1` is the container's loopback, not the host's. Either set `SIDEKICK_WEB_ENABLED=false`, `docker exec` into the container to reach it, or override `SIDEKICK_WEB_HOST=0.0.0.0` and map the port — be aware that exposes it to anyone who can reach the host network.
 

@@ -10,19 +10,19 @@ Exposes twelve tools to Claude:
 
 import asyncio
 import json
-import os
 from typing import Any
 
 import mcp.types as types
 from mcp.server import Server
 
+from . import runtime_config
 from .calendar.chronary import ChronaryProvider
 from .storage.sqlite_tasks import SQLiteTaskStore
 
 
 class MCPServer:
     def __init__(self) -> None:
-        self.timezone = os.getenv("TIMEZONE", "America/Chicago")
+        self.timezone = runtime_config.timezone_name()
         self._calendar: ChronaryProvider | None = None
         self._tasks_store: SQLiteTaskStore | None = None
         self.server = Server("sidekick")

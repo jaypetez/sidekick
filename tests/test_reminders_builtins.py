@@ -230,3 +230,77 @@ def test_format_time_empty():
 
 def test_format_time_malformed_iso_returns_raw():
     assert reminders._format_time("not-a-date") == "not-a-date"
+
+
+def _live_builtin_scheduler(pre_event_minutes: int = 30):
+    """A real (paused) AsyncIOScheduler with both built-in jobs registered."""
+    from apscheduler.schedulers.asyncio import AsyncIOScheduler
+    from apscheduler.triggers.cron import CronTrigger
+    from apscheduler.triggers.interval import IntervalTrigger
+
+    scheduler = AsyncIOScheduler(timezone="UTC")
+    scheduler.start(paused=True)
+    scheduler.add_job(
+        reminders.send_morning_summary,
+        CronTrigger(hour=7, minute=30, timezone="UTC"),
+        args=["bot", "mcp", "123"],
+        id="morning_summary",
+    )
+    if pre_event_minutes:
+        scheduler.add_job(
+            reminders.send_pre_event_reminders,
+            IntervalTrigger(minutes=5),
+            args=["bot", "mcp", "123", pre_event_minutes],
+            id="pre_event_check",
+        )
+    return scheduler
+
+
+@pytest.mark.asyncio
+async def test_apply_builtin_settings_reschedules_morning_and_lead_time():
+    from sidekick import runtime_config
+
+    scheduler = _live_builtin_scheduler()
+    try:
+        runtime_config.set_value("MORNING_REMINDER_TIME", "06:15")
+        runtime_config.set_value("PRE_EVENT_REMINDER_MINUTES", "45")
+        assert reminders.apply_builtin_settings(scheduler) == []
+
+        trigger = scheduler.get_job("morning_summary").trigger
+        fields = {f.name: str(f) for f in trigger.fields}
+        assert (fields["hour"], fields["minute"]) == ("6", "15")
+        assert scheduler.get_job("pre_event_check").args[3] == 45
+    finally:
+        scheduler.shutdown(wait=False)
+
+
+@pytest.mark.asyncio
+async def test_apply_builtin_settings_zero_minutes_pauses_then_resumes():
+    from sidekick import runtime_config
+
+    scheduler = _live_builtin_scheduler()
+    try:
+        runtime_config.set_value("PRE_EVENT_REMINDER_MINUTES", "0")
+        reminders.apply_builtin_settings(scheduler)
+        assert scheduler.get_job("pre_event_check").next_run_time is None
+
+        runtime_config.set_value("PRE_EVENT_REMINDER_MINUTES", "20")
+        reminders.apply_builtin_settings(scheduler)
+        job = scheduler.get_job("pre_event_check")
+        assert job.next_run_time is not None
+        assert job.args[3] == 20
+    finally:
+        scheduler.shutdown(wait=False)
+
+
+@pytest.mark.asyncio
+async def test_apply_builtin_settings_reports_unregistered_job():
+    """If the check was off at startup there's no job to edit — needs a restart."""
+    from sidekick import runtime_config
+
+    scheduler = _live_builtin_scheduler(pre_event_minutes=0)
+    try:
+        runtime_config.set_value("PRE_EVENT_REMINDER_MINUTES", "15")
+        assert reminders.apply_builtin_settings(scheduler) == ["PRE_EVENT_REMINDER_MINUTES"]
+    finally:
+        scheduler.shutdown(wait=False)

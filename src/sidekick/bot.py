@@ -39,6 +39,7 @@ from telegram.ext import (
 
 load_dotenv()
 
+from . import runtime_config  # noqa: E402
 from .agent import PERSONALITY_PRESETS, SidekickAgent  # noqa: E402
 from .allowlist import (  # noqa: E402
     DENIED_MESSAGE,
@@ -123,7 +124,11 @@ def _build_mcp_env() -> dict[str, str]:
     ANTHROPIC_API_KEY, SIDEKICK_WEB_AUTH_TOKEN, ...) so a compromise of
     the MCP subprocess cannot exfiltrate them.
     """
-    return {k: v for k, v in os.environ.items() if k in _MCP_ENV_ALLOWLIST}
+    env = {k: v for k, v in os.environ.items() if k in _MCP_ENV_ALLOWLIST}
+    # The settings page can override TIMEZONE in runtime.json; hand the
+    # subprocess the effective value so calendar day boundaries match.
+    env["TIMEZONE"] = runtime_config.timezone_name()
+    return env
 
 
 # ---------------------------------------------------------------------------

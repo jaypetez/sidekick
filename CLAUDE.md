@@ -106,6 +106,13 @@ The set `LOCAL_REMINDER_TOOLS` in `agent.py` determines routing.
 - Templates are Jinja2 (`web/templates/`); htmx is loaded from CDN in `base.html`. No build step.
 - Dashboard is **localhost-only by default**. In Docker the container's `127.0.0.1` is not the host's — either set `SIDEKICK_WEB_ENABLED=false`, exec into the container, or override `SIDEKICK_WEB_HOST=0.0.0.0` with the security trade-off that implies.
 
+### Runtime settings, services, `/api`, and the CLI
+
+- `runtime_config.py` layers editable overrides (`EDITABLE_KEYS`) from `runtime.json` (in `SIDEKICK_CONFIG_DIR`) over `os.environ`. Read settings through `runtime_config.get()` / `timezone_name()` — **not** `os.getenv` — or settings-page edits silently won't apply. `validate()` gates every write; `SECRET_KEYS` are redacted in `as_dict(redacted=True)`.
+- `services/` holds the framework-free business logic shared by the HTML handlers, `/api`, and the CLI. `services/settings.update()` validates a whole batch before writing, rebuilds the LLM client for LLM keys, re-applies built-in reminder jobs via `reminders.apply_builtin_settings()`, and reports `restart_required` (currently `TIMEZONE`).
+- `web/api/` is a sub-app mounted at `/api/` with a `{data, error}` envelope; the parent app's session/CSRF/auth middlewares still apply. A request with a valid `Authorization: Bearer` token skips CSRF (not an ambient credential); browser JS (`static/js/api.js`) sends `X-CSRF-Token` from the page's `csrf-token` meta tag.
+- `cli/` is `sidekick-cli` — a sync httpx client over `/api`. Uses `SIDEKICK_API_TOKEN` as a bearer when set, otherwise fetches `/_csrf` first.
+
 ### Conversation history
 
 Per-chat history in `agent.py` (`conversation_history` dict). Keys are `int` for Telegram chat ids or `"sl:<channel>"` for Slack so platforms don't collide. Bounded to `MAX_HISTORY_TURNS = 20` pairs. On `anthropic.BadRequestError`, history is cleared for that chat.
@@ -133,6 +140,9 @@ Per-chat history in `agent.py` (`conversation_history` dict). Keys are `int` for
 | `SIDEKICK_WEB_PORT` | `8080` | No (bind port for the dashboard) |
 | `TIMEZONE` | `America/Chicago` | No |
 | `CLAUDE_MODEL` | `claude-haiku-4-5-20251001` | No |
+| `SIDEKICK_RUNTIME_CONFIG` | `$SIDEKICK_CONFIG_DIR/runtime.json` | No (settings-page overrides; wins over env) |
+| `SIDEKICK_API_URL` | `http://127.0.0.1:$SIDEKICK_WEB_PORT` | No (`sidekick-cli` target) |
+| `SIDEKICK_API_TOKEN` | falls back to `SIDEKICK_WEB_AUTH_TOKEN` | No (`sidekick-cli` bearer token) |
 
 ## Testing
 
@@ -144,7 +154,7 @@ Tests use `unittest.mock` — no live API calls. Notable conventions:
 - SQLite tests inject a `:memory:` connection via the `SQLiteTaskStore(conn=...)` constructor
 - Ollama tests use a fake client and verify the format-translation helpers directly — no live ollama server
 
-`src/sidekick` is fully annotated and `mypy --strict` clean — new code must conform. Coverage floor is 80% (enforced via `--cov-fail-under` in pyproject); the current suite is ~161 tests at ~82%.
+`src/sidekick` is fully annotated and `mypy --strict` clean — new code must conform. Coverage floor is 80% (enforced via `--cov-fail-under` in pyproject); the suite currently collects ~500 tests.
 
 `pytest-asyncio` runs in strict mode (`asyncio_mode = "strict"` in pyproject.toml) — every async test must carry an explicit `@pytest.mark.asyncio` decorator.
 
@@ -163,3 +173,15 @@ Five required status checks gate every PR to `main`:
 Run the full set locally before pushing — they all match the commands above.
 
 `.pre-commit-config.yaml` runs ruff lint + format on every commit. Activate with `pre-commit install` after `pip install -e ".[dev]"`.
+
+## Contribution conventions
+
+Full rules in `.github/CONTRIBUTING.md`; the load-bearing ones for code changes:
+
+- **Never push directly to `main`** — it's protected and requires PR + passing CI. Branch from `main` with kebab-case names prefixed `feat/`, `fix/`, `docs/`, or `chore/`.
+- **Linear history is enforced.** Rebase your branch on `main` rather than merging `main` in. Merge commits are disabled; squash-and-merge is the default.
+- Commit subjects: imperative mood, under ~72 chars ("Add X", not "Added X").
+
+## Examples
+
+`examples/01-local-ollama-docker/` is the user-facing "try it in 5 minutes" path — Docker compose with Ollama + the web chat UI, no Telegram or Anthropic key required. Treat its README as the canonical onboarding flow; keep it in sync with any change that affects local-LLM or web-dashboard setup.

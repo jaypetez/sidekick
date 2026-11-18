@@ -37,14 +37,9 @@ services:
     volumes:
       - ollama_data:/root/.ollama
     restart: unless-stopped
-    # --- GPU passthrough (NVIDIA only — uncomment to enable) ---
-    # deploy:
-    #   resources:
-    #     reservations:
-    #       devices:
-    #         - driver: nvidia
-    #           count: all
-    #           capabilities: [gpu]
+    # NVIDIA GPU passthrough lives in docker-compose.gpu.yml — opt in by adding
+    # `-f docker-compose.gpu.yml` to your compose command. Keeping it in an
+    # override file means this base config works on every machine.
 
 volumes:
   ollama_data:

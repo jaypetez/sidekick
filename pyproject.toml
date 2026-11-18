@@ -22,6 +22,7 @@ dependencies = [
     "ollama>=0.6.3",
     "APScheduler==3.11.3",
     "python-dotenv==1.2.4",
+    "httpx>=0.27",
 ]
 
 [project.optional-dependencies]
@@ -38,6 +39,7 @@ dev = [
 [project.scripts]
 sidekick = "sidekick.bot:main"
 sidekick-init = "sidekick.init_cli:main"
+sidekick-cli = "sidekick.cli.main:main"
 
 # Version is derived from the latest git tag (vX.Y.Z) at build time.
 # In containers / sdists without a .git dir, the build reads

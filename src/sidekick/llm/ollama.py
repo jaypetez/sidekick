@@ -22,11 +22,11 @@ regardless of model.
 
 import json
 import logging
-import os
 import uuid
 from types import SimpleNamespace
 from typing import Any
 
+from .. import runtime_config
 from .base import LLMClient
 
 logger = logging.getLogger(__name__)
@@ -40,8 +40,10 @@ class OllamaClient(LLMClient):
         base_url: str | None = None,
         client: Any = None,
     ) -> None:
-        self.model = model or os.getenv("OLLAMA_MODEL") or "llama3.1:8b"
-        self._base_url = base_url or os.getenv("OLLAMA_BASE_URL") or "http://localhost:11434"
+        self.model = model or runtime_config.get("OLLAMA_MODEL") or "llama3.1:8b"
+        self._base_url = (
+            base_url or runtime_config.get("OLLAMA_BASE_URL") or "http://localhost:11434"
+        )
         self._client = client  # lazily constructed when actually used
 
     async def chat(
@@ -58,13 +60,26 @@ class OllamaClient(LLMClient):
         oll_messages.extend(_messages_anthropic_to_ollama(messages))
         oll_tools = [_tool_anthropic_to_ollama(t) for t in tools]
 
+        options: dict[str, Any] = {"num_predict": max_tokens}
+        num_ctx = runtime_config.get_int("OLLAMA_NUM_CTX")
+        if num_ctx is not None:
+            options["num_ctx"] = num_ctx
+        num_gpu = runtime_config.get_int("OLLAMA_NUM_GPU")
+        if num_gpu is not None:
+            options["num_gpu"] = num_gpu
+        keep_alive = runtime_config.get("OLLAMA_KEEP_ALIVE")
+
+        chat_kwargs: dict[str, Any] = {
+            "model": self.model,
+            "messages": oll_messages,
+            "tools": oll_tools or None,
+            "options": options,
+        }
+        if keep_alive:
+            chat_kwargs["keep_alive"] = keep_alive
+
         try:
-            response = await client.chat(
-                model=self.model,
-                messages=oll_messages,
-                tools=oll_tools or None,
-                options={"num_predict": max_tokens},
-            )
+            response = await client.chat(**chat_kwargs)
         except TimeoutError as exc:
             raise RuntimeError(
                 f"Ollama request timed out talking to {self._base_url} "

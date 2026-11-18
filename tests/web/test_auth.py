@@ -58,3 +58,36 @@ async def test_static_assets_remain_public(auth_client):
     resp = await auth_client.get("/static/style.css")
     # 200 if file exists, 404 if not — but never 401.
     assert resp.status != 401
+
+
+@pytest.mark.asyncio
+async def test_valid_bearer_write_skips_csrf(auth_client, bot_data):
+    """API clients authenticate by bearer; that header can't be forged
+    cross-site, so they don't need to scrape a CSRF token."""
+    resp = await auth_client.post(
+        "/api/chat/reset",
+        json={},
+        headers={"Authorization": "Bearer s3cret-token"},
+    )
+    assert resp.status == 200
+
+
+@pytest.mark.asyncio
+async def test_wrong_bearer_write_still_needs_csrf(auth_client):
+    resp = await auth_client.post(
+        "/api/chat/reset",
+        json={},
+        headers={"Authorization": "Bearer wrong"},
+    )
+    assert resp.status == 403
+
+
+@pytest.mark.asyncio
+async def test_bearer_ignored_for_csrf_when_auth_disabled(aiohttp_client, bot_data, monkeypatch):
+    """With auth off there is no token to match, so CSRF still applies."""
+    monkeypatch.delenv("SIDEKICK_WEB_AUTH_TOKEN", raising=False)
+    client = await aiohttp_client(make_app(bot_data=bot_data))
+    resp = await client.post(
+        "/api/chat/reset", json={}, headers={"Authorization": "Bearer anything"}
+    )
+    assert resp.status == 403
