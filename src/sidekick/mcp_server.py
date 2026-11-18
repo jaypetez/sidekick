@@ -70,8 +70,10 @@ class MCPServer:
                             },
                             "max_results": {
                                 "type": "integer",
-                                "description": "Maximum number of events to return (default 20)",
-                                "default": 20,
+                                "description": (
+                                    "Maximum number of events to return (default 100, max 250)"
+                                ),
+                                "default": 100,
                             },
                         },
                         "required": ["start_date", "end_date"],
@@ -188,7 +190,7 @@ class MCPServer:
                 ),
                 types.Tool(
                     name="complete_task",
-                    description="Mark a task as completed by its title (case-insensitive partial match).",
+                    description="Mark a task as completed by its title (exact title, case-insensitive; list the tasks first).",
                     inputSchema={
                         "type": "object",
                         "properties": {
@@ -198,7 +200,7 @@ class MCPServer:
                             },
                             "task_title": {
                                 "type": "string",
-                                "description": "Title (or partial title) of the task to complete",
+                                "description": "Exact title of the task to complete (as listed)",
                             },
                         },
                         "required": ["list_name", "task_title"],
@@ -206,7 +208,7 @@ class MCPServer:
                 ),
                 types.Tool(
                     name="delete_task",
-                    description="Delete a task entirely by its title (case-insensitive partial match).",
+                    description="Delete a task entirely by its title (exact title, case-insensitive; list the tasks first).",
                     inputSchema={
                         "type": "object",
                         "properties": {
@@ -216,7 +218,7 @@ class MCPServer:
                             },
                             "task_title": {
                                 "type": "string",
-                                "description": "Title (or partial title) of the task to delete",
+                                "description": "Exact title of the task to delete (as listed)",
                             },
                         },
                         "required": ["list_name", "task_title"],

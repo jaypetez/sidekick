@@ -15,6 +15,9 @@ Schema:
 
 import os
 import sqlite3
+import threading
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
@@ -55,9 +58,14 @@ def _connect(db_path: str) -> sqlite3.Connection:
 
     ``check_same_thread=False`` is required because the web layer constructs
     the store on the asyncio loop thread but dispatches every call through
-    ``loop.run_in_executor``, which hands off to worker threads. Python's
-    bundled SQLite is built with SQLITE_THREADSAFE=1, which serializes
-    access at the C level, so this is safe under WAL.
+    ``loop.run_in_executor``, which hands off to worker threads.
+
+    That flag alone does **not** make sharing safe: transaction state is per
+    *connection*, so without serialization one thread's ``commit()`` can
+    commit another thread's half-finished write. :class:`SQLiteTaskStore`
+    therefore guards every method with a lock and wraps writes in
+    :meth:`SQLiteTaskStore._tx`. (WAL only helps *separate* connections —
+    e.g. the MCP subprocess and the web process.)
     """
     Path(db_path).parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(db_path, check_same_thread=False)
@@ -80,6 +88,19 @@ class SQLiteTaskStore(TaskStore):
                 self._conn.row_factory = sqlite3.Row
         else:
             self._conn = _connect(db_path or _default_db_path())
+        # One connection is shared by every executor thread; see _connect().
+        self._lock = threading.RLock()
+
+    @contextmanager
+    def _tx(self) -> Iterator[sqlite3.Connection]:
+        """Serialize access and run the block as one transaction.
+
+        Commits on success and rolls back on *any* exception, so a failure
+        part-way through a multi-row write (or a constraint violation) never
+        leaves an open transaction for the next caller to commit by accident.
+        """
+        with self._lock, self._conn:
+            yield self._conn
 
     # ------------------------------------------------------------------
     # Helpers
@@ -87,20 +108,32 @@ class SQLiteTaskStore(TaskStore):
 
     def find_task_list(self, list_name: str) -> int | None:
         """Find a task list id by name (case-insensitive). Returns None if absent."""
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT id FROM task_lists WHERE name = ? COLLATE NOCASE",
+                (list_name,),
+            ).fetchone()
+        return row["id"] if row else None
+
+    def get_or_create_task_list(self, list_name: str) -> int:
+        with self._tx():
+            return self._get_or_create_locked(list_name)
+
+    def _get_or_create_locked(self, list_name: str) -> int:
+        """Caller holds the lock / transaction. Race-free via INSERT OR IGNORE."""
+        self._conn.execute(
+            "INSERT OR IGNORE INTO task_lists (name) VALUES (?)",
+            (list_name,),
+        )
         row = self._conn.execute(
             "SELECT id FROM task_lists WHERE name = ? COLLATE NOCASE",
             (list_name,),
         ).fetchone()
-        return row["id"] if row else None
+        assert row is not None
+        return int(row["id"])
 
-    def get_or_create_task_list(self, list_name: str) -> int:
-        list_id = self.find_task_list(list_name)
-        if list_id is not None:
-            return list_id
-        cursor = self._conn.execute("INSERT INTO task_lists (name) VALUES (?)", (list_name,))
-        self._conn.commit()
-        assert cursor.lastrowid is not None
-        return cursor.lastrowid
+    def _missing_list(self, list_name: str) -> dict[str, Any]:
+        return {"error": f"Task list '{list_name}' not found"}
 
     def find_task_by_title(self, list_id: int, title: str) -> dict[str, Any] | None:
         """First incomplete task matching ``title`` exactly (case-insensitive).
@@ -112,20 +145,22 @@ class SQLiteTaskStore(TaskStore):
         semantics so the chat-driven flow (where Claude echoes the exact
         item it just listed) stays predictable.
         """
-        row = self._conn.execute(
-            "SELECT id, title, status FROM tasks "
-            "WHERE list_id = ? AND status = 'incomplete' "
-            "AND title = ? COLLATE NOCASE LIMIT 1",
-            (list_id, title),
-        ).fetchone()
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT id, title, status FROM tasks "
+                "WHERE list_id = ? AND status = 'incomplete' "
+                "AND title = ? COLLATE NOCASE LIMIT 1",
+                (list_id, title),
+            ).fetchone()
         return dict(row) if row else None
 
     def get_item_by_id(self, item_id: int) -> dict[str, Any] | None:
         """Return a task row by its primary key, or None if missing."""
-        row = self._conn.execute(
-            "SELECT id, list_id, title, status FROM tasks WHERE id = ?",
-            (item_id,),
-        ).fetchone()
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT id, list_id, title, status FROM tasks WHERE id = ?",
+                (item_id,),
+            ).fetchone()
         return dict(row) if row else None
 
     def complete_item_by_id(self, item_id: int) -> dict[str, Any]:
@@ -135,24 +170,24 @@ class SQLiteTaskStore(TaskStore):
         and partial-match hazards that the original LIKE-based lookup
         introduced.
         """
-        row = self.get_item_by_id(item_id)
-        if not row:
-            return {"error": f"No task with id {item_id}"}
-        self._conn.execute(
-            "UPDATE tasks SET status = 'completed', "
-            "completed_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now') WHERE id = ?",
-            (item_id,),
-        )
-        self._conn.commit()
+        with self._tx() as conn:
+            row = self.get_item_by_id(item_id)
+            if not row:
+                return {"error": f"No task with id {item_id}"}
+            conn.execute(
+                "UPDATE tasks SET status = 'completed', "
+                "completed_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now') WHERE id = ?",
+                (item_id,),
+            )
         return {"status": "completed", "title": row["title"], "id": item_id}
 
     def delete_item_by_id(self, item_id: int) -> dict[str, Any]:
         """Delete a task by primary key. Returns error dict when missing."""
-        row = self.get_item_by_id(item_id)
-        if not row:
-            return {"error": f"No task with id {item_id}"}
-        self._conn.execute("DELETE FROM tasks WHERE id = ?", (item_id,))
-        self._conn.commit()
+        with self._tx() as conn:
+            row = self.get_item_by_id(item_id)
+            if not row:
+                return {"error": f"No task with id {item_id}"}
+            conn.execute("DELETE FROM tasks WHERE id = ?", (item_id,))
         return {"status": "deleted", "title": row["title"], "id": item_id}
 
     # ------------------------------------------------------------------
@@ -160,84 +195,105 @@ class SQLiteTaskStore(TaskStore):
     # ------------------------------------------------------------------
 
     def list_tasks(self, args: dict[str, Any]) -> list[dict[str, Any]]:
-        list_id = self.get_or_create_task_list(args["list_name"])
-        rows = self._conn.execute(
-            "SELECT id, title, status FROM tasks "
-            "WHERE list_id = ? AND status = 'incomplete' ORDER BY id",
-            (list_id,),
-        ).fetchall()
+        # Read-only: looking at a list that doesn't exist (a typo, "Costoc")
+        # must not create it.
+        list_id = self.find_task_list(args["list_name"])
+        if list_id is None:
+            return []
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT id, title, status FROM tasks "
+                "WHERE list_id = ? AND status = 'incomplete' ORDER BY id",
+                (list_id,),
+            ).fetchall()
         return [{"id": r["id"], "title": r["title"], "status": r["status"]} for r in rows]
 
     def add_tasks(self, args: dict[str, Any]) -> dict[str, Any]:
-        list_id = self.get_or_create_task_list(args["list_name"])
-        added = []
-        for item in args["items"]:
-            self._conn.execute(
+        items = args.get("items")
+        # A bare string would be iterated character by character
+        # ("milk" -> "m", "i", "l", "k").
+        if isinstance(items, str) or not isinstance(items, list):
+            return {"error": "items must be a list of task titles"}
+        if not all(isinstance(item, str) and item.strip() for item in items):
+            return {"error": "every item must be a non-empty string"}
+        with self._tx() as conn:
+            list_id = self._get_or_create_locked(args["list_name"])
+            conn.executemany(
                 "INSERT INTO tasks (list_id, title) VALUES (?, ?)",
-                (list_id, item),
+                [(list_id, item) for item in items],
             )
-            added.append(item)
-        self._conn.commit()
-        return {"status": "added", "items": added, "list": args["list_name"]}
+        return {"status": "added", "items": list(items), "list": args["list_name"]}
 
     def complete_task(self, args: dict[str, Any]) -> dict[str, Any]:
-        list_id = self.get_or_create_task_list(args["list_name"])
-        task = self.find_task_by_title(list_id, args["task_title"])
-        if not task:
-            return {
-                "error": f"No task matching '{args['task_title']}' found in {args['list_name']}"
-            }
-        self._conn.execute(
-            "UPDATE tasks SET status = 'completed', "
-            "completed_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now') WHERE id = ?",
-            (task["id"],),
-        )
-        self._conn.commit()
+        with self._tx() as conn:
+            list_id = self.find_task_list(args["list_name"])
+            if list_id is None:
+                return self._missing_list(args["list_name"])
+            task = self.find_task_by_title(list_id, args["task_title"])
+            if not task:
+                return {
+                    "error": (
+                        f"No task matching '{args['task_title']}' found in {args['list_name']}"
+                    )
+                }
+            conn.execute(
+                "UPDATE tasks SET status = 'completed', "
+                "completed_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now') WHERE id = ?",
+                (task["id"],),
+            )
         return {"status": "completed", "title": task["title"]}
 
     def delete_task(self, args: dict[str, Any]) -> dict[str, Any]:
-        list_id = self.get_or_create_task_list(args["list_name"])
-        task = self.find_task_by_title(list_id, args["task_title"])
-        if not task:
-            return {
-                "error": f"No task matching '{args['task_title']}' found in {args['list_name']}"
-            }
-        self._conn.execute("DELETE FROM tasks WHERE id = ?", (task["id"],))
-        self._conn.commit()
+        with self._tx() as conn:
+            list_id = self.find_task_list(args["list_name"])
+            if list_id is None:
+                return self._missing_list(args["list_name"])
+            task = self.find_task_by_title(list_id, args["task_title"])
+            if not task:
+                return {
+                    "error": (
+                        f"No task matching '{args['task_title']}' found in {args['list_name']}"
+                    )
+                }
+            conn.execute("DELETE FROM tasks WHERE id = ?", (task["id"],))
         return {"status": "deleted", "title": task["title"]}
 
     def clear_completed(self, args: dict[str, Any]) -> dict[str, Any]:
-        list_id = self.get_or_create_task_list(args["list_name"])
-        self._conn.execute(
-            "DELETE FROM tasks WHERE list_id = ? AND status = 'completed'",
-            (list_id,),
-        )
-        self._conn.commit()
+        with self._tx() as conn:
+            list_id = self.find_task_list(args["list_name"])
+            if list_id is None:
+                return self._missing_list(args["list_name"])
+            conn.execute(
+                "DELETE FROM tasks WHERE list_id = ? AND status = 'completed'",
+                (list_id,),
+            )
         return {"status": "cleared", "list": args["list_name"]}
 
     def list_task_lists(self, args: dict[str, Any]) -> list[dict[str, Any]]:
-        rows = self._conn.execute("SELECT id, name FROM task_lists ORDER BY name").fetchall()
+        with self._lock:
+            rows = self._conn.execute("SELECT id, name FROM task_lists ORDER BY name").fetchall()
         return [{"title": r["name"], "id": str(r["id"])} for r in rows]
 
     def delete_task_list(self, args: dict[str, Any]) -> dict[str, Any]:
-        list_id = self.find_task_list(args["list_name"])
-        if list_id is None:
-            return {"error": f"Task list '{args['list_name']}' not found"}
-        self._conn.execute("DELETE FROM task_lists WHERE id = ?", (list_id,))
-        self._conn.commit()
+        with self._tx() as conn:
+            list_id = self.find_task_list(args["list_name"])
+            if list_id is None:
+                return self._missing_list(args["list_name"])
+            conn.execute("DELETE FROM task_lists WHERE id = ?", (list_id,))
         return {"status": "deleted", "list": args["list_name"]}
 
     def rename_task_list(self, args: dict[str, Any]) -> dict[str, Any]:
-        list_id = self.find_task_list(args["list_name"])
-        if list_id is None:
-            return {"error": f"Task list '{args['list_name']}' not found"}
         try:
-            self._conn.execute(
-                "UPDATE task_lists SET name = ? WHERE id = ?",
-                (args["new_name"], list_id),
-            )
-            self._conn.commit()
+            with self._tx() as conn:
+                list_id = self.find_task_list(args["list_name"])
+                if list_id is None:
+                    return self._missing_list(args["list_name"])
+                conn.execute(
+                    "UPDATE task_lists SET name = ? WHERE id = ?",
+                    (args["new_name"], list_id),
+                )
         except sqlite3.IntegrityError:
+            # _tx() already rolled back — no transaction left open.
             return {"error": f"A task list named '{args['new_name']}' already exists"}
         return {
             "status": "renamed",

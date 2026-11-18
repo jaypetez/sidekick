@@ -124,6 +124,10 @@ def _messages_anthropic_to_ollama(messages: list[dict[str, Any]]) -> list[dict[s
     """Flatten Anthropic messages (which may have list-of-block content) to
     the role/content/tool_calls shape Ollama expects."""
     out: list[dict[str, Any]] = []
+    # tool_use id -> tool name. Ollama's Message model drops tool_call_id, so
+    # tool results are matched to their call by ``tool_name`` instead;
+    # without it the model can't tell parallel results apart.
+    tool_names: dict[str, str] = {}
     for msg in messages:
         role = msg["role"]
         content = msg["content"]
@@ -141,6 +145,7 @@ def _messages_anthropic_to_ollama(messages: list[dict[str, Any]]) -> list[dict[s
                 if btype == "text":
                     text_parts.append(_block_attr(block, "text", ""))
                 elif btype == "tool_use":
+                    tool_names[str(_block_attr(block, "id"))] = str(_block_attr(block, "name"))
                     tool_calls.append(
                         {
                             "id": _block_attr(block, "id"),
@@ -162,13 +167,15 @@ def _messages_anthropic_to_ollama(messages: list[dict[str, Any]]) -> list[dict[s
             for block in content:
                 btype = _block_attr(block, "type")
                 if btype == "tool_result":
-                    out.append(
-                        {
-                            "role": "tool",
-                            "tool_call_id": _block_attr(block, "tool_use_id"),
-                            "content": _block_attr(block, "content", ""),
-                        }
-                    )
+                    tool_use_id = _block_attr(block, "tool_use_id")
+                    tool_msg: dict[str, Any] = {
+                        "role": "tool",
+                        "tool_call_id": tool_use_id,
+                        "content": _block_attr(block, "content", ""),
+                    }
+                    if str(tool_use_id) in tool_names:
+                        tool_msg["tool_name"] = tool_names[str(tool_use_id)]
+                    out.append(tool_msg)
                 elif btype == "text":
                     out.append({"role": "user", "content": _block_attr(block, "text", "")})
             continue
