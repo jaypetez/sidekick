@@ -15,8 +15,8 @@
 </p>
 
 <p align="center">
+  <a href="https://github.com/jaypetez/sidekick/actions/workflows/ci.yml"><img src="https://github.com/jaypetez/sidekick/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI status"></a>
   <img src="https://img.shields.io/badge/python-3.11+-3776AB?logo=python&logoColor=white" alt="Python 3.11+">
-  <img src="https://img.shields.io/badge/tests-87%20passing-22c55e" alt="87 tests">
   <img src="https://img.shields.io/badge/calendar-Chronary.ai-8b5cf6" alt="Chronary">
   <img src="https://img.shields.io/badge/LLM-Claude%20%7C%20Ollama-f59e0b" alt="LLM">
   <img src="https://img.shields.io/badge/chat-Web%20%7C%20Telegram%20%7C%20Slack-0ea5e9" alt="Chat">
@@ -26,17 +26,22 @@
 
 ## Try it locally in 5 minutes
 
-The fastest way to see Sidekick is **without** Telegram or an Anthropic key. Run everything in Docker, with a local LLM on your machine, and chat with it in your browser:
+The fastest way to see Sidekick is **without** Telegram or an Anthropic key: everything runs in Docker, a local LLM runs on your machine through Ollama, and you chat with it in your browser.
 
 ```bash
-cp examples/01-local-ollama-docker/.env.example .env   # then paste your Chronary key
-docker compose run --rm sidekick sidekick-init         # one-time Chronary bootstrap
+cp examples/01-local-ollama-docker/.env.example .env
+# Edit .env: paste your Chronary key, and set SIDEKICK_WEB_AUTH_TOKEN to a random
+# string of 16+ characters (python -c "import secrets; print(secrets.token_urlsafe(32))")
+
+docker compose run --rm --entrypoint sidekick-init sidekick   # one-time Chronary bootstrap
+# Paste the printed CHRONARY_AGENT_ID and CHRONARY_CALENDAR_ID into .env
+
 docker compose --profile ollama up -d
-docker compose exec ollama ollama pull qwen2.5:14b
-# open http://localhost:8080/chat
+docker compose --profile ollama exec ollama ollama pull qwen2.5:14b
+# Open http://localhost:8080 and sign in with your token
 ```
 
-Full walkthrough — including GPU passthrough, smaller-model alternatives, and what to try first — in [**examples/01-local-ollama-docker/**](examples/01-local-ollama-docker/).
+The full walkthrough, with GPU passthrough, smaller models and what to try first, is in [**examples/01-local-ollama-docker/**](examples/01-local-ollama-docker/).
 
 ---
 
@@ -44,26 +49,36 @@ Full walkthrough — including GPU passthrough, smaller-model alternatives, and 
 
 <p align="center">
   <img src="docs/screenshots/chat.png" alt="Web chat UI" width="720"><br>
-  <em>The in-browser chat — same agent, no Telegram needed.</em>
+  <em>The in-browser chat: the same agent as Telegram and Slack.</em>
 </p>
 
 <p align="center">
   <img src="docs/screenshots/dashboard.png" alt="Admin dashboard" width="720"><br>
-  <em>Dashboard health tiles and personality at a glance.</em>
+  <em>Dashboard: health tiles, version, uptime and the active personality.</em>
 </p>
 
 <p align="center">
   <img src="docs/screenshots/tasks.png" alt="Tasks page" width="720"><br>
-  <em>Tasks are shared state — the agent and the dashboard read/write the same SQLite db.</em>
+  <em>Tasks are shared state: the agent and the dashboard read and write the same SQLite database.</em>
 </p>
 
-> Capturing the screenshots above: start the stack (e.g. via [examples/01](examples/01-local-ollama-docker/)), then `pip install playwright && playwright install chromium && python scripts/capture_screenshots.py` against the running app.
+<p align="center">
+  <img src="docs/screenshots/calendar.png" alt="Calendar page" width="720"><br>
+  <em>Upcoming events from Chronary, with create, edit and delete.</em>
+</p>
+
+<p align="center">
+  <img src="docs/screenshots/system.png" alt="System page" width="720"><br>
+  <em>The System page: every setting Sidekick reads, its effective value and where it came from. Secrets show only as set or not set.</em>
+</p>
+
+> The screenshots are generated from seeded demo data by `scripts/capture_screenshots.py` (needs `pip install playwright && playwright install chromium`; no API keys required).
 
 ---
 
 ## What it's like to use
 
-Sidekick lives wherever you want to chat with it — the web UI, Telegram, or Slack. Talk to it the way you'd ping a roommate — no slash commands required, no special grammar.
+Sidekick lives wherever you want to chat with it: the web UI, Telegram, or Slack. Talk to it the way you'd ping a roommate. No slash commands or special grammar required.
 
 ```text
 you   add milk, eggs, and tortillas to costco
@@ -87,7 +102,7 @@ bot   Two things, both before noon. Look at you, going full morning-person.
       • 11:30 AM — Lunch with Sarah
 ```
 
-Behind the scenes Claude (or your local model) is calling tools to read Chronary, write to a local SQLite db, and schedule jobs. You just chat.
+Behind the scenes Claude (or your local model) calls tools that read and write Chronary, write to a local SQLite database, and schedule jobs. You just chat.
 
 ---
 
@@ -95,80 +110,98 @@ Behind the scenes Claude (or your local model) is calling tools to read Chronary
 
 | Capability | How to ask | Backend |
 |---|---|---|
-| **Calendar** — list, add, move, delete events | *"add soccer practice tomorrow 4:30pm"* | [Chronary.ai](https://chronary.ai) |
-| **Task lists & groceries** — unlimited named lists, partial-title matching | *"add chicken to the grocery list"* / *"got the eggs"* | Local SQLite at `~/.config/sidekick/sidekick.db` |
-| **Scheduled reminders** — recurring, cron-style, persisted across restarts | *"remind me every Sunday 5pm to prep lunches"* | APScheduler + JSON |
-| **Morning summary** — daily briefing of the day's events | configured in `.env`, time tunable via chat | Chronary + scheduler |
-| **Pre-event alerts** — heads-up before events start | every 5 min, configurable lead time | Chronary + scheduler |
-| **Personality presets** — snarky, pirate, formal, butler, or freeform | `/personality snarky` | persisted to local config |
+| **Calendar**: list, add, move, delete events | *"add soccer practice tomorrow 4:30pm"* | [Chronary.ai](https://chronary.ai) |
+| **Task lists & groceries**: unlimited named lists, partial-title matching | *"add chicken to the grocery list"* / *"got the eggs"* | Local SQLite at `$SIDEKICK_CONFIG_DIR/sidekick.db` |
+| **Scheduled reminders**: recurring, cron-style, persisted across restarts | *"remind me every Sunday 5pm to prep lunches"* | APScheduler + `reminders.json` |
+| **Morning summary**: daily briefing of the day's events | time set in `.env`, the Settings page, or by chat | Chronary + scheduler |
+| **Pre-event alerts**: a heads-up before events start | polled every 5 min, or pushed by Chronary webhooks | Chronary + scheduler |
+| **Personality presets**: snarky, formal, pirate, surfer, butler, or freeform | `/personality snarky` | persisted to `config.json` |
 
 ---
 
 ## How it's built
 
 ```
-                ┌────────────────────────────────┐
-                │            Chat in             │
-                │   Telegram  ┊        ┊  Slack  │
-                └──────┬─────────────────┬───────┘
-                       │                 │
-                       ▼                 ▼
-              ┌─────────────────────────────┐
-              │      SidekickAgent          │
-              │   (tool-use loop, history)  │
-              └───┬────────────┬────────┬───┘
-                  │            │        │
-            ┌─────▼────┐ ┌─────▼────┐   │
-            │ LLMClient│ │   MCP    │   │
-            │ Anthropic│ │subprocess│   │
-            │ /Ollama  │ │          │   │
-            └──────────┘ └─┬──────┬─┘   │
-                           │      │     │
-                  ┌────────▼──┐ ┌─▼─────▼──────┐
-                  │ Calendar  │ │ TaskStore +  │
-                  │ Chronary  │ │ APScheduler  │
-                  └───────────┘ └──────────────┘
+   ┌──────────────── Chat in ─────────────────┐   ┌──── Operate ────┐
+   │  Web chat   ┊   Telegram   ┊   Slack     │   │ Dashboard, /api │
+   │ (always on) ┊  (optional)  ┊ (optional)  │   │  sidekick-cli   │
+   └──────────────────┬───────────────────────┘   └────────┬────────┘
+                      │                                    │
+                      ▼                                    │
+            ┌───────────────────────┐                      │
+            │     SidekickAgent     │◄─────────────────────┘
+            │ (tool-use loop, per-  │
+            │  chat history)        │
+            └──┬────────┬────────┬──┘
+               │        │        │ reminder tools (in-process)
+               ▼        ▼        ▼
+       ┌──────────┐ ┌────────────┐ ┌───────────────┐   POST /webhooks/chronary
+       │LLMClient │ │    MCP     │ │  APScheduler  │◄── (signed event.reminder
+       │Anthropic │ │ subprocess │ │ morning summ. │     pushes, optional)
+       │ /Ollama  │ └──┬──────┬──┘ │ pre-event,    │
+       └──────────┘    │      │    │ custom jobs   │
+                       ▼      ▼    └───────────────┘
+              ┌──────────┐ ┌──────────┐
+              │ Calendar │ │TaskStore │
+              │ Chronary │ │ SQLite   │
+              └──────────┘ └──────────┘
 ```
 
-Every backend sits behind an abstract base class (`CalendarProvider`, `TaskStore`, `LLMClient`, `ChatPlatform`), so swapping any of them is a single-file change. The provider table:
+Everything runs in one Python process on one asyncio event loop, except the MCP server, which is a stdio subprocess serving the 12 calendar and task tools. The four reminder tools run in-process because they need the live scheduler. The web dashboard and its JSON API share that process too.
+
+The calendar, task store and LLM sit behind abstract base classes (`CalendarProvider`, `TaskStore`, `LLMClient`), so adding another backend means one new class plus wiring. Slack implements the `ChatPlatform` ABC; Telegram is still wired directly in `bot.py`.
 
 | Layer | Default | Alternative | Files |
 |---|---|---|---|
 | LLM | Anthropic Claude | local Ollama (`LLM_PROVIDER=ollama`) | `llm/anthropic.py`, `llm/ollama.py` |
 | Calendar | Chronary.ai | — *(write your own)* | `calendar/chronary.py` |
 | Tasks | Local SQLite | — *(write your own)* | `storage/sqlite_tasks.py` |
-| Chat platforms | Telegram (always) + Slack (opt-in) | WhatsApp-ready ABC, not built | `bot.py`, `platforms/slack.py` |
+| Chat platforms | Web chat (always) + Telegram + Slack (both opt-in) | WhatsApp-ready ABC, not built | `web/`, `bot.py`, `platforms/slack.py` |
 
 ---
 
 ## Quickstart
 
-> Want the fully-local "no Telegram, no Anthropic key" path? Use the [Try it locally in 5 minutes](#try-it-locally-in-5-minutes) box above (or [examples/01-local-ollama-docker/](examples/01-local-ollama-docker/) for the full walkthrough). The Quickstart below is for the production path with Telegram + Anthropic.
+> Want the fully local "no Telegram, no Anthropic key" path? Use [Try it locally in 5 minutes](#try-it-locally-in-5-minutes) above, or [examples/01-local-ollama-docker/](examples/01-local-ollama-docker/) for the full walkthrough. The Quickstart below is the production path with Telegram and Anthropic.
 
 ### Option A — Docker (recommended)
 
 ```bash
 git clone https://github.com/jaypetez/sidekick.git
 cd sidekick
-cp .env.example .env
-# Fill in TELEGRAM_BOT_TOKEN (or leave blank for web-only mode),
-# ANTHROPIC_API_KEY, CHRONARY_API_KEY
+cp .env.example .env && chmod 0600 .env
+```
 
-# One-time Chronary bootstrap — creates an agent + default calendar:
-docker compose run --rm sidekick sidekick-init
+Edit `.env`:
+
+- `TELEGRAM_BOT_TOKEN`: from [@BotFather](https://t.me/BotFather). Delete the placeholder value to run web-only.
+- `TELEGRAM_ALLOWED_USER_IDS`: uncomment and set it. **Unset means every Telegram message is rejected** (see [Setting up Telegram](#setting-up-telegram)).
+- `ANTHROPIC_API_KEY` and `CHRONARY_API_KEY`.
+- `REMINDER_CHAT_ID`: optional; fill it in later with `/get_id`.
+
+Then bootstrap Chronary and start the bot:
+
+```bash
+# One-time Chronary bootstrap: creates an agent + default calendar.
+# --entrypoint is required: the image's entrypoint is the bot itself.
+docker compose run --rm --entrypoint sidekick-init sidekick
 # Paste the printed CHRONARY_AGENT_ID and CHRONARY_CALENDAR_ID into .env
 
 docker compose up -d
 docker compose logs -f sidekick
 ```
 
+State (database, reminders, personality, settings overrides, secrets) lives in `./data/sidekick` on the host. The container runs as a non-root `app` user, so if Docker created that directory as root, make it writable for the container (for example `sudo chown -R 999:999 data/sidekick`; check the uid with `docker compose run --rm --entrypoint id sidekick`).
+
 To run with a **local LLM** instead of Anthropic:
 
 ```bash
 # In .env: LLM_PROVIDER=ollama, OLLAMA_BASE_URL=http://ollama:11434, OLLAMA_MODEL=qwen2.5:14b
 docker compose --profile ollama up -d
-docker compose exec ollama ollama pull qwen2.5:14b
+docker compose --profile ollama exec ollama ollama pull qwen2.5:14b
 ```
+
+The compose file needs **Docker Compose v2.20 or newer** (it uses an optional `depends_on`).
 
 ### Option B — bare metal (Python 3.11+)
 
@@ -176,10 +209,10 @@ docker compose exec ollama ollama pull qwen2.5:14b
 git clone https://github.com/jaypetez/sidekick.git
 cd sidekick
 python -m venv .venv && source .venv/bin/activate     # Windows: .venv\Scripts\activate
-pip install -e ".[dev]"
-cp .env.example .env                                  # fill it in — see config below
+pip install -e .                                      # add ".[dev]" to run the tests
+cp .env.example .env && chmod 0600 .env               # fill it in, as above
 
-sidekick-init      # creates the Chronary agent + default calendar
+sidekick-init      # creates the Chronary agent + default calendar; paste the IDs into .env
 sidekick           # starts the bot
 ```
 
@@ -187,43 +220,50 @@ sidekick           # starts the bot
 
 ## Configuration
 
+The settings most people need:
+
 | Variable | Required when | Where to get it |
 |---|---|---|
-| `TELEGRAM_BOT_TOKEN` | only when you want Telegram (leave blank for web-only mode) | [@BotFather](https://t.me/BotFather) → `/newbot` |
-| `TELEGRAM_ALLOWED_USER_IDS` | whenever Telegram is enabled — **closed-by-default: unset = every message rejected** | CSV of numeric user IDs; find yours via [@userinfobot](https://t.me/userinfobot) |
+| `TELEGRAM_BOT_TOKEN` | only for Telegram (leave blank for web-only mode) | [@BotFather](https://t.me/BotFather) → `/newbot` |
+| `TELEGRAM_ALLOWED_USER_IDS` | whenever Telegram is enabled. **Closed by default: unset = every message rejected** | CSV of numeric user IDs; see [Setting up Telegram](#setting-up-telegram) |
 | `LLM_PROVIDER` | optional, default `anthropic` | `anthropic` \| `ollama` |
 | `ANTHROPIC_API_KEY` | `LLM_PROVIDER=anthropic` | [console.anthropic.com](https://console.anthropic.com) |
-| `OLLAMA_BASE_URL`, `OLLAMA_MODEL` | `LLM_PROVIDER=ollama` | local install (or compose `ollama` service) |
-| `CHRONARY_API_KEY` | always | [console.chronary.ai](https://console.chronary.ai) — org key for first-time `sidekick-init` |
-| `CHRONARY_AGENT_ID`, `CHRONARY_CALENDAR_ID` | always | printed by `sidekick-init` on first run |
-| `SIDEKICK_DB_PATH` | optional | default `$SIDEKICK_CONFIG_DIR/sidekick.db` |
-| `SIDEKICK_CONFIG_DIR` | optional, default `~/.config/sidekick` | where every state file lives (DB, reminders, personality, runtime overrides, secrets) |
+| `CLAUDE_MODEL` | optional, default `claude-haiku-4-5-20251001` | any Claude model ID |
+| `OLLAMA_BASE_URL`, `OLLAMA_MODEL` | `LLM_PROVIDER=ollama` | local install, or the compose `ollama` service |
+| `CHRONARY_API_KEY` | always | [console.chronary.ai](https://console.chronary.ai) |
+| `CHRONARY_AGENT_ID`, `CHRONARY_CALENDAR_ID` | always | printed by `sidekick-init` |
+| `TIMEZONE` | optional, default `America/Chicago` | IANA name, e.g. `America/Los_Angeles` |
 | `REMINDER_CHAT_ID` | enables morning summary + pre-event alerts | send `/get_id` to the bot in the target chat |
-| `SLACK_BOT_TOKEN`, `SLACK_APP_TOKEN` | enabling the Slack adapter | Slack app config (below) |
-| `SIDEKICK_WEB_ENABLED` | optional, default `true` | set `false` to skip the admin dashboard |
-| `SIDEKICK_WEB_HOST`, `SIDEKICK_WEB_PORT` | optional | bind interface/port for the dashboard (default `127.0.0.1:8080`) |
-| `TIMEZONE` | optional | IANA name, default `America/Chicago` |
+| `MORNING_REMINDER_TIME`, `PRE_EVENT_REMINDER_MINUTES` | optional, defaults `07:30` and `30` | 24-hour `HH:MM`; minutes of lead time |
+| `PRE_EVENT_SOURCE`, `CHRONARY_WEBHOOK_ID` | only for push reminders | see [Push reminders from Chronary](#push-reminders-from-chronary-optional) |
+| `SLACK_BOT_TOKEN`, `SLACK_APP_TOKEN`, `SLACK_ALLOWED_USER_IDS` | only for Slack (allowlist is closed by default) | see [Adding Slack](#adding-slack) |
+| `SIDEKICK_WEB_ENABLED` | optional, default `true` | `false` turns off the dashboard, `/api`, `sidekick-cli` and the webhook route (forced back on in web-only mode) |
+| `SIDEKICK_WEB_HOST`, `SIDEKICK_WEB_PORT` | optional, default `127.0.0.1:8080` | bind address for the dashboard |
+| `SIDEKICK_WEB_AUTH_TOKEN` | **required** when `SIDEKICK_WEB_HOST` isn't loopback (always in Docker); 16+ characters | any long random string |
+| `SIDEKICK_CONFIG_DIR` | optional, default `~/.config/sidekick` | where every state file lives (DB, reminders, personality, settings overrides, secrets) |
 
-Full reference: [`.env.example`](.env.example).
+[`.env.example`](.env.example) explains each of these plus the rest: rate limits, the Slack channel allowlist, `SIDEKICK_WEB_ALLOWED_HOSTS`, `SIDEKICK_WEB_TRUST_PROXY`, the session secret and per-file path overrides. The **System** page (or `sidekick-cli system config`) lists every setting Sidekick reads, with its effective value and where it came from.
 
 ---
 
 ## Admin dashboard
 
-Sidekick ships an in-process web UI at **http://127.0.0.1:8080** for the operator. It runs alongside the Telegram/Slack adapters on the same event loop — and when no Telegram token is set, it stands alone as the only chat surface. The pages:
+Sidekick serves an in-process web UI, by default at **http://127.0.0.1:8080**. It runs on the same event loop as the Telegram and Slack adapters, and when no Telegram token is set it is the only chat surface. The pages:
 
-- **Chat** — converse with the agent right in the browser; uses the same `SidekickAgent` as Telegram/Slack
-- **Dashboard** — at-a-glance health tiles (scheduler, MCP, reminder count, tool count, active LLM, platforms), version + uptime, and the active personality
-- **Reminders** — create, pause, resume, or delete; built-in jobs (morning summary, pre-event check) can be paused but not removed
-- **Tasks** — browse every list, add/complete/delete items, clear completed, drop a whole list
-- **Calendar** — view upcoming events in a configurable window, create / edit / delete events
-- **Settings** — switch personality (same presets the `/personality` chat command exposes) and edit runtime settings: LLM provider/model, Ollama tuning, timezone, morning-summary time and pre-event lead time. Saved changes go to `runtime.json` in the config dir and override `.env`; LLM changes reload the client immediately, reminder times apply to the live jobs, and a `TIMEZONE` change takes effect after a restart. API keys are write-only (only the last 4 characters are ever shown). Each field shows where its value comes from — `override` (this page), `from .env`, or `default` — and overrides have a **Reset** button that drops back to `.env` / the default.
-- **System** — read-only view of how this Sidekick is set up: component status, version/uptime, LLM in use, Telegram/Slack state, web bind + auth posture, reminder delivery, file paths, and **every** setting Sidekick reads, grouped, with its effective value and source. Secrets only ever show as set / not set.
-- **Health** — JSON `/health` endpoint reports scheduler + MCP subprocess liveness for monitoring
+- **Chat**: talk to the agent in the browser; the same `SidekickAgent` as Telegram and Slack
+- **Dashboard**: health tiles (scheduler, MCP, reminder count, tool count, active LLM, platforms), version, uptime and the active personality
+- **Reminders**: create, pause, resume or delete; the built-in jobs (morning summary, pre-event check) can be paused but not removed
+- **Tasks**: browse every list, add, complete or delete items, clear completed, drop a whole list
+- **Calendar**: upcoming events in a configurable window; create, edit and delete events
+- **Settings**: switch personality and edit runtime settings: LLM provider and model, Ollama tuning, timezone, morning-summary time, pre-event lead time and pre-event reminder source. Saved changes go to `runtime.json` in the config dir and override `.env`. LLM changes reload the client immediately, reminder settings apply to the live jobs, and a `TIMEZONE` change takes effect after a restart. API keys are write-only (only the last 4 characters are shown). Each field shows where its value comes from (`override`, `from .env`, or `default`), and overrides have a **Reset** button.
+- **System**: a read-only view of how this Sidekick is set up: component status, version and uptime, LLM in use, Telegram and Slack state, web bind and auth posture, reminder delivery, file paths, and **every** setting Sidekick reads with its effective value and source. Secrets only ever show as set or not set.
+- **Health**: `GET /health` returns JSON for monitoring. When an auth token is set, callers without it only get `{"status": "ok"}`.
 
-The dashboard is enabled by default and binds to localhost only — no auth, no remote exposure. To reach it remotely, SSH-tunnel (`ssh -L 8080:127.0.0.1:8080 …`) or use Tailscale/WireGuard.
+**Access.** With the default loopback bind and no token, the dashboard has no login, and it only answers requests whose `Host` is a loopback name (a DNS-rebinding defense). To reach it through another hostname, such as a Tailscale MagicDNS name, add that name to `SIDEKICK_WEB_ALLOWED_HOSTS`, or set `SIDEKICK_WEB_AUTH_TOKEN`. With a token set, opening any page in a browser redirects to a **sign-in form**: paste the token once and the session lasts 7 days. API clients send `Authorization: Bearer <token>` instead. Binding to anything other than loopback **requires** the token; the dashboard refuses to start without one.
 
-**JSON API + CLI.** Everything the dashboard does is also exposed as JSON under `/api/*` (`{data, error}` envelope), and `sidekick-cli` wraps it for the terminal:
+**Docker.** Inside a container, `127.0.0.1` is the container's own loopback, so `docker-compose.yml` expects `SIDEKICK_WEB_HOST=0.0.0.0` (which in turn requires `SIDEKICK_WEB_AUTH_TOKEN`). Compose publishes the port only on the host's loopback (`127.0.0.1:8080`), so the dashboard is still not reachable from your LAN. For remote access, use an SSH tunnel (`ssh -L 8080:127.0.0.1:8080 …`) or Tailscale/WireGuard.
+
+**JSON API + CLI.** Everything the dashboard does is also available as JSON under `/api/*` (`{data, error}` envelope), and `sidekick-cli` wraps it for the terminal:
 
 ```bash
 sidekick-cli tasks list
@@ -234,77 +274,119 @@ sidekick-cli system config --group LLM
 sidekick-cli chat send "what's on tomorrow?"
 ```
 
-It talks to `http://127.0.0.1:${SIDEKICK_WEB_PORT}` (override with `SIDEKICK_API_URL`). When the dashboard requires auth, set `SIDEKICK_API_TOKEN` (it falls back to `SIDEKICK_WEB_AUTH_TOKEN`); bearer-authenticated requests don't need a CSRF token.
+It talks to `http://127.0.0.1:$SIDEKICK_WEB_PORT` (override with `SIDEKICK_API_URL` or `--base-url`; add `--json` for raw output). When the dashboard requires auth, it sends `SIDEKICK_API_TOKEN` as a bearer token, falling back to `SIDEKICK_WEB_AUTH_TOKEN`. `sidekick-cli` reads these from the shell environment, not from `.env`. In Docker the container already has them, so the easiest way is:
 
-**Docker caveat:** inside a container `127.0.0.1` is the container's loopback, not the host's. Either set `SIDEKICK_WEB_ENABLED=false`, `docker exec` into the container to reach it, or override `SIDEKICK_WEB_HOST=0.0.0.0` and map the port — be aware that exposes it to anyone who can reach the host network.
+```bash
+docker compose exec sidekick sidekick-cli system status
+```
 
 ---
 
 ## Setting up Telegram
 
-Telegram is the default chat surface. Two env vars get you running: a bot token and an allowlist.
+Telegram needs two settings: a bot token and an allowlist.
 
-1. **Create the bot.** Message [@BotFather](https://t.me/BotFather), send `/newbot`, and follow the prompts (pick a display name, then a username ending in `bot`). BotFather replies with a token like `123456:ABC-DEF…` — put it in `.env` as `TELEGRAM_BOT_TOKEN`.
+1. **Create the bot.** Message [@BotFather](https://t.me/BotFather), send `/newbot`, and follow the prompts (pick a display name, then a username ending in `bot`). BotFather replies with a token like `123456:ABC-DEF…`. Put it in `.env` as `TELEGRAM_BOT_TOKEN`.
 2. **Find your user ID.** Message [@userinfobot](https://t.me/userinfobot); it replies with your numeric Telegram user ID.
-3. **Allow yourself in.** Set `TELEGRAM_ALLOWED_USER_IDS` to that ID (CSV for multiple people, e.g. `12345678,98765432`). **This is closed-by-default — if it's unset or empty, the bot rejects every message,** so this step is not optional. Restart after editing.
-4. **Start chatting.** Open your bot in Telegram (search its `@username`) and send `/start`. Talk to it naturally — no slash commands required.
+3. **Allow yourself in.** Set `TELEGRAM_ALLOWED_USER_IDS` to that ID (CSV for several people, e.g. `12345678,98765432`). **This is closed by default: if it's unset or empty, the bot rejects every message,** so this step is not optional. Restart after editing (in Docker, `docker compose up -d sidekick` recreates the container so it picks up the new `.env`).
+4. **Start chatting.** Open your bot in Telegram (search for its `@username`) and send `/start`. Then just talk to it.
 
 **Built-in commands:** `/start` (intro), `/reset` (clear conversation history), `/get_id` (print this chat's ID), `/personality <style>` (change tone).
 
-> The allowlist is keyed on **user** ID, while `REMINDER_CHAT_ID` (below) wants a **chat** ID. In a 1:1 DM with the bot the two are identical, so `/get_id` in your DM gives you the value for both. They diverge only in group chats.
+> The allowlist is keyed on **user** ID, while `REMINDER_CHAT_ID` (below) wants a **chat** ID. In a 1:1 DM with the bot the two are the same, so `/get_id` in your DM gives you the value for both. They differ only in group chats.
 
 ### Using it in a group chat
 
-You can run Sidekick in a group instead of (or alongside) a 1:1 DM — handy for a household or team. Two extra things matter:
+You can run Sidekick in a group instead of (or as well as) a 1:1 DM, which is handy for a household or team. A few things to know:
 
-1. **Add the bot to the group.** Open the group → *Add members* → search your bot's `@username` and add it.
-2. **Decide on group privacy mode.** By default, BotFather bots join with **privacy mode ON**: the bot only sees messages that @mention it, reply to one of its messages, or are commands (`/get_id`, `/start`). When you add it, Telegram shows a *"the bot has no access to messages"* note — that's this setting, and it's expected.
-   - **Leave it ON** to have the bot respond only when explicitly addressed (`@yourbot what's on my calendar?`). Recommended for busy groups.
-   - **Turn it OFF** to have the bot act on *every* message in the group. Sidekick has no mention-gate, so with privacy off it will try to respond to everything an allowlisted user posts. To disable: message [@BotFather](https://t.me/BotFather) → `/setprivacy` → pick your bot → **Disable**. ⚠️ The change only applies to groups the bot joins *after* the switch, so **remove the bot from the group and re-add it** for it to take effect.
-3. **The allowlist still applies per user.** `TELEGRAM_ALLOWED_USER_IDS` gates *who* may command the bot even in a group — add each person's numeric user ID, comma-separated. Everyone else is ignored.
-4. **Point reminders at the group.** Set `REMINDER_CHAT_ID` to the group's chat ID — a **negative** number for groups. Get it with `/get_id` in the group, or via the API tip below.
+1. **Add the bot to the group.** Open the group → *Add members* → search for your bot's `@username` and add it.
+2. **Decide on group privacy mode.** BotFather bots start with **privacy mode ON**: the bot only sees messages that @mention it, reply to one of its messages, or are commands (`/get_id`, `/start`). When you add it, Telegram shows a *"the bot has no access to messages"* note; that's this setting, and it's expected.
+   - **Leave it ON** to have the bot respond only when addressed (`@yourbot what's on my calendar?`). Recommended for busy groups.
+   - **Turn it OFF** to have the bot act on *every* message in the group. Sidekick has no mention filter, so with privacy off it replies to everything. That includes members who aren't on the allowlist: each of their messages gets a short "not on this bot's allowlist" reply. To disable it: message [@BotFather](https://t.me/BotFather) → `/setprivacy` → pick your bot → **Disable**. ⚠️ The change only applies to groups the bot joins *after* the switch, so **remove the bot from the group and add it again**.
+3. **The allowlist still applies per user.** `TELEGRAM_ALLOWED_USER_IDS` decides *who* may use the bot, even in a group. Add each person's numeric user ID, comma-separated.
+4. **The group shares one conversation.** History is kept per chat, so everyone in the group talks to the same running conversation. `/reset` clears it for the whole group.
+5. **Point reminders at the group.** Set `REMINDER_CHAT_ID` to the group's chat ID, which is a **negative** number. Get it with `/get_id` in the group, or with the tip below.
 
-> **Tip — grab user & chat IDs without running the bot.** Once `TELEGRAM_BOT_TOKEN` is set and the bot is in the chat, post a message there, then ask Telegram's API directly:
+> **Tip: get user and chat IDs without running the bot.** Once `TELEGRAM_BOT_TOKEN` is set and the bot is in the chat, post a message the bot can see (with privacy mode on, that means one that @mentions it, or a command), then ask Telegram's API directly:
 > ```bash
 > curl -s "https://api.telegram.org/bot<YOUR_BOT_TOKEN>/getUpdates" | python -m json.tool
 > ```
-> In each update, `message.from.id` is a **user ID** (for `TELEGRAM_ALLOWED_USER_IDS`) and `message.chat.id` is the **chat ID** (negative for groups; use it for `REMINDER_CHAT_ID`). Telegram only retains updates briefly, so send a fresh message right before you call this.
+> In each update, `message.from.id` is a **user ID** (for `TELEGRAM_ALLOWED_USER_IDS`) and `message.chat.id` is the **chat ID** (negative for groups; use it for `REMINDER_CHAT_ID`). Telegram only keeps updates briefly, and returns nothing while the bot itself is running and polling, so stop the bot first and send a fresh message right before you call this.
 
 ### Enabling reminders (optional)
 
-Morning summaries and pre-event alerts need a destination chat. Send `/get_id` to the bot in the chat you want them delivered to, then set `REMINDER_CHAT_ID` to the value it prints and restart. Leave it unset to skip reminders entirely.
+Morning summaries and pre-event alerts need a destination chat. Send `/get_id` to the bot in the chat you want them in, set `REMINDER_CHAT_ID` to the value it prints, and restart. Leave it blank to turn reminders off.
 
 ### Push reminders from Chronary (optional)
 
 By default Sidekick checks the calendar every 5 minutes for events starting within `PRE_EVENT_REMINDER_MINUTES`. Chronary can instead **push** a signed `event.reminder` webhook at exactly the right time, so there's no polling lag, no midnight blind spot, and no repeats after a restart.
 
-This needs a **public HTTPS URL** that reaches the dashboard's `/webhooks/chronary` route. Chronary refuses private or localhost addresses. A tunnel such as Cloudflare Tunnel, Tailscale Funnel or ngrok, or a reverse proxy, works. Expose only that one path. The route checks Chronary's HMAC signature itself, so it skips the dashboard's login, CSRF and Host checks, and the rest of the dashboard stays private.
+This needs a **public HTTPS URL** that reaches the dashboard's `/webhooks/chronary` route; Chronary refuses private and localhost addresses. A tunnel (Cloudflare Tunnel, Tailscale Funnel, ngrok) or a reverse proxy works. **Expose only that one path.** The route checks Chronary's HMAC signature itself, so it skips the dashboard's login, CSRF and Host checks; everything else on the dashboard should stay private. [Exposing the webhook with Cloudflare Tunnel](#exposing-the-webhook-with-cloudflare-tunnel) below walks through one way to do it.
 
 ```bash
 sidekick-webhook register --url https://hooks.example.com/webhooks/chronary
-# The signing secret is saved (0600) to $SIDEKICK_CONFIG_DIR/chronary_webhook.secret,
-# never printed. Paste the printed CHRONARY_WEBHOOK_ID into .env, restart, then
-# set "Pre-event reminder source" to "Chronary webhooks" on the settings page
+# The signing secret is saved (0600) to $SIDEKICK_CONFIG_DIR/chronary_webhook.secret
+# and never printed. Paste the printed CHRONARY_WEBHOOK_ID into .env, restart, then
+# set "Pre-event reminder source" to "Chronary webhooks" on the Settings page
 # (or PRE_EVENT_SOURCE=webhook in .env).
 sidekick-webhook test     # sends a signed test reminder through the whole path
 sidekick-webhook status   # active? deactivated reason? recent deliveries
 ```
 
+In Docker, run these inside the running container so they use its config dir: `docker compose exec sidekick sidekick-webhook register --url …`.
+
 `register` also sets the calendar's default reminder to `PRE_EVENT_REMINDER_MINUTES`. The route returns 404 until a signing secret is configured (that file, or `CHRONARY_WEBHOOK_SECRET` to override it). `GET /api/health` reports when the last delivery arrived, so you can tell if the tunnel goes down. To go back to polling, run `sidekick-webhook delete` and set the source back to polling.
+
+### Exposing the webhook with Cloudflare Tunnel
+
+If your domain is on Cloudflare, a remotely managed tunnel gives Sidekick a public HTTPS hostname without opening any ports. These steps assume the Docker setup above and use `hooks.example.com` as the public hostname.
+
+1. **Set Sidekick up for it.** In `.env`, set `SIDEKICK_WEB_HOST=0.0.0.0` (so the tunnel container can reach the dashboard on the compose network) and a `SIDEKICK_WEB_AUTH_TOKEN` (required for that bind). Recreate the container: `docker compose up -d sidekick`.
+2. **Create the tunnel.** In the Cloudflare dashboard go to *Zero Trust → Networks → Tunnels → Create a tunnel*, choose **Cloudflared**, and name it. Of the install command it shows, keep only the token (the long `eyJ…` string). Save it on the host in a file outside the repo that only you can read, for example `~/cloudflared/tunnel.env` containing `TUNNEL_TOKEN=eyJ…`, with `chmod 600`.
+3. **Run `cloudflared` next to Sidekick.** Create `docker-compose.override.yml` in the repo root. Compose picks it up automatically, and you can list it in `.git/info/exclude` so git ignores it:
+
+   ```yaml
+   services:
+     cloudflared:
+       image: cloudflare/cloudflared:<pinned-version>
+       container_name: sidekick-cloudflared
+       command: tunnel --no-autoupdate run
+       env_file: /home/<you>/cloudflared/tunnel.env
+       restart: unless-stopped
+   ```
+
+   Run `docker compose up -d`. The tunnel shows as **Healthy** in the dashboard.
+4. **Route only the webhook path.** In the tunnel's *Published application routes*, add a route:
+   - **Hostname**: `hooks.example.com`
+   - **Path**: `^/webhooks/chronary$`
+   - **Service**: `http://sidekick:8080` (the compose service name and port)
+
+   Cloudflare creates the DNS record. Any other path falls through to the tunnel's catch-all rule, which returns 404, so the dashboard and sign-in page stay private.
+5. **Check it from outside**, then register:
+
+   ```bash
+   curl -s -o /dev/null -w '%{http_code}\n' https://hooks.example.com/                    # 404: dashboard not exposed
+   curl -s -o /dev/null -w '%{http_code}\n' -X POST https://hooks.example.com/webhooks/chronary   # 401 once a secret exists (404 before)
+   docker compose exec sidekick sidekick-webhook register --url https://hooks.example.com/webhooks/chronary
+   docker compose exec sidekick sidekick-webhook test
+   ```
 
 ---
 
 ## Adding Slack
 
-Telegram works out of the box once allowlisted (above). Slack is opt-in and runs concurrently — same bot, two front doors.
+Slack is opt-in and runs at the same time as Telegram and the web chat: the same bot with another front door.
 
-1. Create a Slack app at https://api.slack.com/apps
-2. Enable **Socket Mode** → generate an `xapp-…` app-level token
-3. Add Bot Token Scopes: `chat:write`, `app_mentions:read`, `im:history`, `im:read`, `im:write`
-4. Install to your workspace → grab the `xoxb-…` bot user token
-5. Set `SLACK_BOT_TOKEN` and `SLACK_APP_TOKEN` in `.env`, restart
+1. Create a Slack app at https://api.slack.com/apps.
+2. Enable **Socket Mode** and generate an `xapp-…` app-level token.
+3. Add the bot token scopes `chat:write`, `im:history`, `im:read` and `im:write`.
+4. Under **Event Subscriptions**, enable events and subscribe to the bot event `message.im`, so direct messages reach the bot. To use it in channels as well, also add `channels:history` and `message.channels`, then invite the bot to the channel. It answers every message it receives there; there is no mention filter.
+5. Install the app to your workspace and copy the `xoxb-…` bot user token.
+6. Set `SLACK_BOT_TOKEN` and `SLACK_APP_TOKEN` in `.env`.
+7. Set `SLACK_ALLOWED_USER_IDS` to the Slack member IDs (like `U01ABC23DEF`) allowed to use the bot. **Closed by default: if it's unset, every Slack message is rejected.** Optionally, `SLACK_ALLOWED_CHANNELS` limits which channels it responds in.
+8. Restart.
 
-Conversation history is kept separate per chat via `tg:` / `sl:` prefixes on the chat-id.
+Conversation history is kept per chat. Slack chats use an `sl:<channel>` key, so they never collide with Telegram chat IDs.
 
 > Heads up: morning summaries and pre-event reminders currently fire only on Telegram. Multi-platform reminder delivery is a tracked follow-up.
 
@@ -312,39 +394,42 @@ Conversation history is kept separate per chat via `tg:` / `sl:` prefixes on the
 
 ## Local LLM (Ollama)
 
-Set `LLM_PROVIDER=ollama` to route the bot through a local Ollama server instead of Anthropic.
+Set `LLM_PROVIDER=ollama` to send requests to a local Ollama server instead of Anthropic. The provider, model and Ollama tuning (`OLLAMA_NUM_CTX`, `OLLAMA_NUM_GPU`, `OLLAMA_KEEP_ALIVE`) can also be changed on the Settings page without a restart.
 
 **Recommended tool-capable models:**
 
 | Model | VRAM (Q4) | Notes |
 |---|---|---|
-| `qwen2.5:14b` | ~9GB | **Best tool-use we tested at ≤16GB VRAM.** Default in [examples/01](examples/01-local-ollama-docker/). |
-| `qwen2.5:7b` | ~5GB | Smaller GPUs or CPU-only. Slightly better at function-calling than llama3.1:8b. |
-| `llama3.1:8b` | ~5GB | Project's historical baseline. Solid general balance. |
+| `qwen2.5:14b` | ~9GB | **Best tool use we tested at ≤16GB VRAM.** Default in [examples/01](examples/01-local-ollama-docker/). |
+| `qwen2.5:7b` | ~5GB | Smaller GPUs or CPU-only. Slightly better at function calling than llama3.1:8b. |
+| `llama3.1:8b` | ~5GB | The project's historical baseline and the `.env.example` default. |
 
-> ⚠️ Tool-use reliability on any local model is **materially lower** than Claude's. For day-to-day production, keep Anthropic. Ollama is for offline / cost-free / privacy-sensitive operation where the occasional missed tool call is acceptable.
+> ⚠️ Tool-use reliability on any local model is **materially lower** than Claude's. For day-to-day use, keep Anthropic. Ollama is for offline, cost-free or privacy-sensitive operation where the occasional missed tool call is acceptable.
+
+For NVIDIA GPU passthrough in Docker, layer `docker-compose.gpu.yml` on top: `docker compose -f docker-compose.yml -f docker-compose.gpu.yml --profile ollama up -d`.
 
 ---
 
 ## Deployment posture
 
-Sane defaults out of the box, but you own the host. A few specifics worth knowing:
+Sane defaults out of the box, but you own the host. Specifics worth knowing:
 
-- **Web dashboard binds to `127.0.0.1` only** inside the container. Docker publishes it back to the host loopback via the `127.0.0.1:8080:8080` mapping in `docker-compose.yml`, so it is never reachable from the LAN unless you change `SIDEKICK_WEB_HOST`.
-- **Ollama port is loopback-only.** The compose file binds the `ollama` service to `127.0.0.1:11434`, so a misconfigured firewall doesn't accidentally expose your local model server to the network.
-- **`.env` should be `chmod 0600`.** The file holds bot tokens, Chronary keys, and Anthropic credentials.
-- **Persisted state files (`reminders.json`, `config.json`) are written with mode `0600`** so other users on the host can't read your reminder schedule.
-- **MCP subprocess env is scoped** — only Chronary, SQLite, and timezone vars propagate. Telegram / Slack / Anthropic / web-auth tokens are withheld.
-- Full hardening guide and the dashboard auth token requirement live in `docs/security.md`.
+- **The web dashboard binds to `127.0.0.1` by default** on bare metal. In Docker it binds `0.0.0.0` *inside* the container, which requires `SIDEKICK_WEB_AUTH_TOKEN`, and compose publishes it only on the host's loopback (`127.0.0.1:8080`), so it isn't reachable from the LAN.
+- **Ollama's port is loopback-only.** The compose file binds the `ollama` service to `127.0.0.1:11434`, so a misconfigured firewall doesn't expose your model server to the network.
+- **`.env` should be `chmod 0600`.** It holds bot tokens, Chronary keys and Anthropic credentials.
+- **State files with secrets or schedules are written with mode `0600`**: `reminders.json`, `runtime.json` (which can hold an API key entered on the Settings page), `web_session.secret` and `chronary_webhook.secret`.
+- **The MCP subprocess gets a scoped environment**: only the Chronary credentials, the database and config paths, the timezone, and basic process variables such as `PATH`. Telegram, Slack, Anthropic and web-auth tokens are withheld.
+- **Chat is rate-limited per user** on Telegram, Slack and web chat (`SIDEKICK_RATE_LIMIT_MAX` per `SIDEKICK_RATE_LIMIT_WINDOW_SECONDS`, default 10 per 60 s).
+- The full hardening guide is in [`docs/security.md`](docs/security.md).
 
 ---
 
 ## Known limitations
 
-- **Recurring events** — Chronary doesn't document recurring-event support; the bot creates individual instances when asked for *"every X"*. Revisit when Chronary publishes RRULE.
-- **`location` and `attendees` on events** — stashed in Chronary's `metadata` field (no first-class support). Round-trips correctly on list/get.
-- **Reminders are Telegram-only** for now.
-- **WhatsApp is not built.** The `ChatPlatform` abstraction is ready for a third adapter; just no implementation yet.
+- **Recurring events**: Sidekick doesn't create recurring series in Chronary. Asked for *"every X"*, it creates individual events. Instances of recurring series that already exist in Chronary are listed with their series ID.
+- **`location` and `attendees` on events** are stored in Chronary's `metadata` field (they aren't first-class fields). They round-trip correctly on list and get.
+- **Reminders are Telegram-only** for now, so they don't fire in web-only mode.
+- **WhatsApp is not built.** The `ChatPlatform` abstraction is ready for another adapter; there's just no implementation yet.
 
 ---
 
@@ -359,9 +444,9 @@ ruff check . && ruff format --check .      # lint + format check (CI gates these
 mypy src/sidekick                          # strict type check (CI gates this)
 ```
 
-No live API calls in tests — everything is mocked. CI runs lint + typecheck + tests on Python 3.11 and 3.12 plus a dependency-review step; all five jobs must pass before a PR can merge.
+Tests make no live API calls; everything is mocked. CI runs lint, type checking and tests on Python 3.11 and 3.12, plus dependency review; all five jobs must pass before a PR can merge. Separate workflows also run `pip-audit`, `bandit` and CodeQL.
 
-Branching, commit, and PR conventions live in [`.github/CONTRIBUTING.md`](.github/CONTRIBUTING.md). `main` is protected (CODEOWNERS review, linear history, no force-push) — work happens on `feat/`, `fix/`, `chore/` branches and lands via PR.
+Branching, commit and PR conventions are in [`.github/CONTRIBUTING.md`](.github/CONTRIBUTING.md). `main` is protected (CODEOWNERS review, linear history, no force-push): work happens on `feat/`, `fix/`, `docs/` and `chore/` branches and lands through a PR. Contributors using AI coding agents should start with [`CLAUDE.md`](CLAUDE.md).
 
 ---
 
@@ -373,7 +458,7 @@ Branching, commit, and PR conventions live in [`.github/CONTRIBUTING.md`](.githu
 
 ## Security
 
-Sidekick is a single-tenant self-hosted bot. Defaults are closed: Telegram and Slack require explicit user allowlists, the web dashboard binds to `127.0.0.1:8080`, and CI runs `pip-audit`, `bandit`, and CodeQL on every PR.
+Sidekick is a single-tenant, self-hosted bot. Defaults are closed: Telegram and Slack require explicit user allowlists, the web dashboard binds to `127.0.0.1:8080` and requires a token for any other bind, and CI runs `pip-audit`, `bandit` and CodeQL on every PR.
 
 - Policy and how to report a vulnerability: [`.github/SECURITY.md`](.github/SECURITY.md)
 - Operator's guide (threat model, surface posture, checklist, known limitations): [`docs/security.md`](docs/security.md)
