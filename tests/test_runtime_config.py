@@ -60,8 +60,9 @@ def test_get_int_parses_overlay():
     assert runtime_config.get_int("OLLAMA_NUM_GPU") == 42
 
 
-def test_get_int_returns_default_on_garbage():
-    runtime_config.set_value("OLLAMA_NUM_GPU", "not-a-number")
+def test_get_int_returns_default_on_garbage(monkeypatch):
+    # set_value() rejects garbage now, but a hand-edited .env can still carry it.
+    monkeypatch.setenv("OLLAMA_NUM_GPU", "not-a-number")
     assert runtime_config.get_int("OLLAMA_NUM_GPU", default=7) == 7
 
 
@@ -134,3 +135,56 @@ def test_current_path_reflects_use_path(tmp_path):
     new_path = str(tmp_path / "other.json")
     runtime_config.use_path(new_path)
     assert runtime_config.current_path() == new_path
+
+
+@pytest.mark.parametrize(
+    ("key", "value"),
+    [
+        ("TIMEZONE", "Mars/Olympus_Mons"),
+        ("MORNING_REMINDER_TIME", "7:5"),
+        ("MORNING_REMINDER_TIME", "24:00"),
+        ("PRE_EVENT_REMINDER_MINUTES", "-5"),
+        ("PRE_EVENT_REMINDER_MINUTES", "soon"),
+        ("OLLAMA_NUM_CTX", "big"),
+        ("LLM_PROVIDER", "gpt"),
+    ],
+)
+def test_validate_rejects_bad_values(key, value):
+    with pytest.raises(runtime_config.ConfigError):
+        runtime_config.set_value(key, value)
+    assert runtime_config.get(key) != value
+
+
+@pytest.mark.parametrize(
+    ("key", "value"),
+    [
+        ("TIMEZONE", "Europe/Berlin"),
+        ("MORNING_REMINDER_TIME", "07:05"),
+        ("MORNING_REMINDER_TIME", "23:59"),
+        ("PRE_EVENT_REMINDER_MINUTES", "0"),
+        ("LLM_PROVIDER", "Ollama"),
+    ],
+)
+def test_validate_accepts_good_values(key, value):
+    runtime_config.set_value(key, value)
+    assert runtime_config.get(key) == value
+
+
+def test_timezone_name_prefers_overlay(monkeypatch):
+    monkeypatch.setenv("TIMEZONE", "UTC")
+    assert runtime_config.timezone_name() == "UTC"
+    runtime_config.set_value("TIMEZONE", "Asia/Tokyo")
+    assert runtime_config.timezone_name() == "Asia/Tokyo"
+
+
+def test_default_path_honors_config_dir(monkeypatch, tmp_path):
+    monkeypatch.delenv("SIDEKICK_RUNTIME_CONFIG", raising=False)
+    monkeypatch.setenv("SIDEKICK_CONFIG_DIR", str(tmp_path / "cfg"))
+    assert runtime_config._default_path() == str(tmp_path / "cfg" / "runtime.json")
+
+
+def test_persist_leaves_no_temp_files(isolated_runtime_config):
+    runtime_config.set_value("CLAUDE_MODEL", "a")
+    runtime_config.set_value("CLAUDE_MODEL", "b")
+    leftovers = [p.name for p in Path(isolated_runtime_config).parent.iterdir()]
+    assert leftovers == [Path(isolated_runtime_config).name]

@@ -125,7 +125,11 @@ form.addEventListener("submit", async (event) => {
   try {
     const data = await apiFetch("/api/settings", { method: "PATCH", body: changes });
     applySettingsSnapshot(data.settings, Object.keys(data.settings), Array.from(secretState.keys()));
-    const summary = `Saved ${data.applied.length} change(s)` + (data.llm_reloaded ? " · LLM reloaded" : "");
+    const restart = data.restart_required || [];
+    const summary =
+      `Saved ${data.applied.length} change(s)` +
+      (data.llm_reloaded ? " · LLM reloaded" : "") +
+      (restart.length ? ` · restart Sidekick to apply ${restart.join(", ")}` : "");
     setStatus(status, "ok", summary);
   } catch (err) {
     setStatus(status, "error", `Save failed: ${err.message}`);

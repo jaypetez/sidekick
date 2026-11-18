@@ -24,6 +24,8 @@ from apscheduler.triggers.interval import IntervalTrigger
 from mcp import ClientSession
 from telegram import Bot
 
+from . import runtime_config
+
 if TYPE_CHECKING:
     from .agent import SidekickAgent
 
@@ -44,10 +46,10 @@ def setup_scheduler(bot: Bot | None, mcp_session: ClientSession) -> AsyncIOSched
     built-in jobs that need a Telegram ``Bot`` to deliver messages are skipped;
     the scheduler still runs for custom reminders that don't need delivery.
     """
-    tz = os.getenv("TIMEZONE", "America/Chicago")
+    tz = runtime_config.timezone_name()
     reminder_chat_id = os.getenv("REMINDER_CHAT_ID")
-    morning_time = os.getenv("MORNING_REMINDER_TIME", "07:30")
-    pre_event_minutes = int(os.getenv("PRE_EVENT_REMINDER_MINUTES", "30"))
+    morning_time = _morning_time()
+    pre_event_minutes = _pre_event_minutes()
 
     scheduler = AsyncIOScheduler(timezone=tz)
 
@@ -86,6 +88,49 @@ def setup_scheduler(bot: Bot | None, mcp_session: ClientSession) -> AsyncIOSched
 
     scheduler.start()
     return scheduler
+
+
+def _morning_time() -> str:
+    return runtime_config.get("MORNING_REMINDER_TIME") or "07:30"
+
+
+def _pre_event_minutes() -> int:
+    minutes = runtime_config.get_int("PRE_EVENT_REMINDER_MINUTES", 30)
+    return 30 if minutes is None else minutes
+
+
+def apply_builtin_settings(scheduler: AsyncIOScheduler) -> list[str]:
+    """Push the current runtime settings into the live built-in jobs.
+
+    Called after the settings page saves ``MORNING_REMINDER_TIME`` or
+    ``PRE_EVENT_REMINDER_MINUTES`` so the change applies without a restart.
+    Returns the keys that could *not* be applied live (the job was never
+    registered at startup, e.g. minutes was 0 or REMINDER_CHAT_ID unset), so
+    the caller can tell the user a restart is needed.
+    """
+    pending: list[str] = []
+    tz = runtime_config.timezone_name()
+
+    if scheduler.get_job("morning_summary") is not None:
+        hour, minute = _morning_time().split(":")
+        scheduler.reschedule_job(
+            "morning_summary",
+            trigger=CronTrigger(hour=int(hour), minute=int(minute), timezone=tz),
+        )
+
+    minutes = _pre_event_minutes()
+    job = scheduler.get_job("pre_event_check")
+    if job is None:
+        if minutes > 0:
+            pending.append("PRE_EVENT_REMINDER_MINUTES")
+    elif minutes == 0:
+        scheduler.pause_job("pre_event_check")
+    else:
+        bot, mcp_session, chat_id = job.args[:3]
+        scheduler.modify_job("pre_event_check", args=[bot, mcp_session, chat_id, minutes])
+        if job.next_run_time is None:
+            scheduler.resume_job("pre_event_check")
+    return pending
 
 
 # ------------------------------------------------------------------
@@ -170,7 +215,7 @@ def _validate_reminder(payload: Any) -> dict[str, Any] | None:
 def load_custom_reminders(scheduler: AsyncIOScheduler, agent: "SidekickAgent") -> None:
     """Load saved custom reminders and register them with the scheduler."""
     reminders = _read_reminders_file()
-    tz = os.getenv("TIMEZONE", "America/Chicago")
+    tz = runtime_config.timezone_name()
     for raw in reminders:
         r = _validate_reminder(raw)
         if r is None:
@@ -265,7 +310,7 @@ def add_reminder(
 ) -> dict[str, Any]:
     """Add a new custom reminder. Returns the reminder dict."""
     reminder_id = f"reminder_{int(time.time())}"
-    tz = os.getenv("TIMEZONE", "America/Chicago")
+    tz = runtime_config.timezone_name()
 
     schedule: dict[str, Any]
     if interval_minutes:
@@ -304,7 +349,7 @@ def update_reminder(
     enabled: bool | None = None,
 ) -> dict[str, Any]:
     """Update an existing reminder (built-in or custom). Returns updated info."""
-    tz = os.getenv("TIMEZONE", "America/Chicago")
+    tz = runtime_config.timezone_name()
 
     # Handle built-in reminders
     if reminder_id in BUILTIN_IDS:
@@ -439,7 +484,7 @@ def get_all_reminders(scheduler: AsyncIOScheduler) -> list[dict[str, Any]]:
 
 async def send_morning_summary(bot: Bot, mcp_session: ClientSession, chat_id: str) -> None:
     """Fetch today's events and send a morning briefing."""
-    tz = os.getenv("TIMEZONE", "America/Chicago")
+    tz = runtime_config.timezone_name()
     today = datetime.now(ZoneInfo(tz)).date().isoformat()
     try:
         result = await mcp_session.call_tool(
@@ -473,7 +518,7 @@ async def send_pre_event_reminders(
     bot: Bot, mcp_session: ClientSession, chat_id: str, minutes_before: int
 ) -> None:
     """Check for events starting within `minutes_before` minutes and notify once."""
-    tz_name = os.getenv("TIMEZONE", "America/Chicago")
+    tz_name = runtime_config.timezone_name()
     now = datetime.now(tz=ZoneInfo(tz_name))
     window_end = now + timedelta(minutes=minutes_before + 5)
 

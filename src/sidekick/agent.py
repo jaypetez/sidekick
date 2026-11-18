@@ -20,6 +20,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from mcp import ClientSession
 from telegram import Bot
 
+from . import runtime_config
 from .llm import LLMClient, build_llm_client
 from .logging_setup import safe_repr
 from .reminders import (
@@ -195,7 +196,6 @@ class SidekickAgent:
     ) -> None:
         self.session = mcp_session
         self.llm: LLMClient = llm or build_llm_client()
-        self.timezone = os.getenv("TIMEZONE", "America/Chicago")
         # chat_id can be an int (Telegram, historic) or a string ("sl:C0123",
         # "tg:-100123") once platforms prefix their ids.
         self.conversation_history: dict[int | str, list[dict[str, Any]]] = {}
@@ -204,6 +204,11 @@ class SidekickAgent:
         self.scheduler = scheduler
         self.bot = bot
         self.reminder_chat_id = reminder_chat_id
+
+    @property
+    def timezone(self) -> str:
+        """Effective timezone, read live so settings-page edits apply immediately."""
+        return runtime_config.timezone_name()
 
     async def load_tools(self) -> None:
         """Fetch tool definitions from the MCP server and add local reminder tools."""

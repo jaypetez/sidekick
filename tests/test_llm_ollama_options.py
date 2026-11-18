@@ -51,8 +51,9 @@ async def test_chat_forwards_keep_alive_when_set():
 
 
 @pytest.mark.asyncio
-async def test_chat_ignores_invalid_num_gpu():
-    runtime_config.set_value("OLLAMA_NUM_GPU", "not-an-int")
+async def test_chat_ignores_invalid_num_gpu(monkeypatch):
+    # set_value() rejects garbage now, but a hand-edited .env can still carry it.
+    monkeypatch.setenv("OLLAMA_NUM_GPU", "not-an-int")
     fake = AsyncMock()
     fake.chat = AsyncMock(return_value=_fake_response())
     client = OllamaClient(client=fake)

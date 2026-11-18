@@ -53,8 +53,10 @@ async def _envelope_errors(
     except json.JSONDecodeError as exc:
         return error("invalid_json", str(exc), status=400)
     except Exception as exc:  # noqa: BLE001
-        logger.exception("Unhandled error in /api handler")
-        return error("internal_error", str(exc), status=500)
+        # Details go to the log only: exception text can carry file paths,
+        # upstream URLs or provider error bodies.
+        logger.exception("Unhandled error in /api handler: %s", type(exc).__name__)
+        return error("internal_error", "internal error — see server log", status=500)
 
 
 def make_api_app() -> web.Application:

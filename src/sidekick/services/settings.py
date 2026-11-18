@@ -39,37 +39,53 @@ def snapshot(*, redacted: bool = True) -> dict[str, Any]:
     return runtime_config.as_dict(redacted=redacted)
 
 
+# Keys the built-in reminder jobs read; saving one re-applies them live.
+_REMINDER_KEYS = frozenset({"MORNING_REMINDER_TIME", "PRE_EVENT_REMINDER_MINUTES"})
+
+
 async def update(
     changes: dict[str, str],
     *,
     agent: Any | None = None,
+    scheduler: Any | None = None,
 ) -> dict[str, Any]:
     """Apply a batch of settings changes.
 
-    Empty-string values are interpreted as "remove the override" (so a
-    user can clear an API key from the UI by submitting an empty field).
-    Returns ``{"applied": [...keys], "llm_reloaded": bool}``.
+    Every value is validated *before* anything is written, so a bad key or
+    value rejects the whole batch instead of leaving it half-applied.
+    Empty-string values mean "remove the override" (so a user can clear an
+    API key from the UI by submitting an empty field).
+
+    Returns ``{"applied": [...], "llm_reloaded": bool, "restart_required": [...]}``.
     """
-    applied: list[str] = []
-    needs_llm_reload = False
     for key, value in changes.items():
-        if key not in runtime_config.EDITABLE_KEYS:
-            raise runtime_config.ConfigError(f"{key} is not user-editable")
+        runtime_config.validate(key, value)
+
+    applied: list[str] = []
+    for key, value in changes.items():
         if value == "":
             runtime_config.unset(key)
         else:
             runtime_config.set_value(key, value)
         applied.append(key)
-        if key in _LLM_AFFECTING_KEYS:
-            needs_llm_reload = True
 
     llm_reloaded = False
-    if needs_llm_reload and agent is not None:
+    if agent is not None and _LLM_AFFECTING_KEYS & changes.keys():
         from . import llm as llm_service
 
         llm_reloaded = await llm_service.rebuild_client(agent)
 
-    return {"applied": applied, "llm_reloaded": llm_reloaded}
+    restart_required = sorted(runtime_config.RESTART_REQUIRED_KEYS & changes.keys())
+    if scheduler is not None and _REMINDER_KEYS & changes.keys():
+        from ..reminders import apply_builtin_settings
+
+        restart_required = sorted(set(restart_required) | set(apply_builtin_settings(scheduler)))
+
+    return {
+        "applied": applied,
+        "llm_reloaded": llm_reloaded,
+        "restart_required": restart_required,
+    }
 
 
 async def set_personality(agent: Any, style: str) -> str:

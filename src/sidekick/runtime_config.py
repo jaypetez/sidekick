@@ -17,13 +17,17 @@ collide.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
 import os
+import re
 import stat
+import tempfile
 from pathlib import Path
 from threading import RLock
 from typing import Any, Final
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 logger = logging.getLogger(__name__)
 
@@ -58,15 +62,27 @@ class ConfigError(ValueError):
     """Raised on attempts to set non-whitelisted keys."""
 
 
+DEFAULT_TIMEZONE: Final = "America/Chicago"
+
+# Keys whose new value only takes effect after a process restart (the MCP
+# subprocess and already-registered cron triggers capture them at startup).
+RESTART_REQUIRED_KEYS: Final[frozenset[str]] = frozenset({"TIMEZONE"})
+
+_HHMM_RE = re.compile(r"^([01]?\d|2[0-3]):([0-5]\d)$")
+
+
 def _default_path() -> str:
-    return os.getenv(
-        "SIDEKICK_RUNTIME_CONFIG",
-        os.path.join(os.path.expanduser("~/.config/sidekick"), "runtime.json"),
-    )
+    explicit = os.getenv("SIDEKICK_RUNTIME_CONFIG")
+    if explicit:
+        return explicit
+    config_dir = os.path.expanduser(os.getenv("SIDEKICK_CONFIG_DIR", "~/.config/sidekick"))
+    return os.path.join(config_dir, "runtime.json")
 
 
 _lock = RLock()
-_path: str = _default_path()
+# Resolved lazily (see current_path) so a SIDEKICK_CONFIG_DIR loaded from
+# .env after this module is imported is still honored. use_path() pins it.
+_path: str | None = None
 _overlay: dict[str, str] | None = None  # lazy-loaded; None means "not yet read"
 
 
@@ -75,7 +91,7 @@ def _load() -> dict[str, str]:
     with _lock:
         if _overlay is None:
             try:
-                raw: Any = json.loads(Path(_path).read_text())
+                raw: Any = json.loads(Path(current_path()).read_text())
                 if isinstance(raw, dict):
                     _overlay = {str(k): str(v) for k, v in raw.items() if isinstance(k, str)}
                 else:
@@ -111,10 +127,43 @@ def get_int(key: str, default: int | None = None) -> int | None:
         return default
 
 
-def set_value(key: str, value: str, *, persist: bool = True) -> None:
-    """Set an editable key. Raises :class:`ConfigError` for non-whitelisted keys."""
+def timezone_name() -> str:
+    """Effective IANA timezone name (overlay → env → America/Chicago)."""
+    return get("TIMEZONE") or DEFAULT_TIMEZONE
+
+
+def validate(key: str, value: str) -> None:
+    """Raise :class:`ConfigError` if ``value`` is not acceptable for ``key``.
+
+    An empty string is always valid: it means "remove the override".
+    """
     if key not in EDITABLE_KEYS:
         raise ConfigError(f"{key} is not user-editable")
+    if value == "":
+        return
+    if key == "TIMEZONE":
+        try:
+            ZoneInfo(value)
+        except (ZoneInfoNotFoundError, ValueError) as exc:
+            raise ConfigError(f"TIMEZONE: unknown timezone {value!r}") from exc
+    elif key == "MORNING_REMINDER_TIME":
+        if not _HHMM_RE.match(value):
+            raise ConfigError("MORNING_REMINDER_TIME must be HH:MM (24-hour)")
+    elif key == "PRE_EVENT_REMINDER_MINUTES":
+        if not value.isdigit():
+            raise ConfigError("PRE_EVENT_REMINDER_MINUTES must be a whole number ≥ 0")
+    elif key in {"OLLAMA_NUM_CTX", "OLLAMA_NUM_GPU"}:
+        try:
+            int(value)
+        except ValueError as exc:
+            raise ConfigError(f"{key} must be an integer") from exc
+    elif key == "LLM_PROVIDER" and value.lower() not in {"anthropic", "ollama"}:
+        raise ConfigError("LLM_PROVIDER must be 'anthropic' or 'ollama'")
+
+
+def set_value(key: str, value: str, *, persist: bool = True) -> None:
+    """Set an editable key. Raises :class:`ConfigError` for non-whitelisted keys."""
+    validate(key, value)
     with _lock:
         overlay = _load()
         overlay[key] = value
@@ -124,8 +173,7 @@ def set_value(key: str, value: str, *, persist: bool = True) -> None:
 
 def unset(key: str, *, persist: bool = True) -> None:
     """Remove an overlay entry. Subsequent reads fall back to ``os.environ``."""
-    if key not in EDITABLE_KEYS:
-        raise ConfigError(f"{key} is not user-editable")
+    validate(key, "")
     with _lock:
         overlay = _load()
         if overlay.pop(key, None) is not None and persist:
@@ -133,13 +181,27 @@ def unset(key: str, *, persist: bool = True) -> None:
 
 
 def _persist(overlay: dict[str, str]) -> None:
-    path = Path(_path)
+    """Atomically write the overlay, owner-only from the moment it exists.
+
+    The file can hold API keys, so it is created 0600 (``mkstemp``) rather
+    than written then chmod'd, and swapped in with ``os.replace`` so a crash
+    mid-write can never leave a truncated file that would drop every override.
+    """
+    path = Path(current_path())
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(overlay, indent=2, sort_keys=True))
+    fd, tmp = tempfile.mkstemp(prefix=".runtime-", suffix=".json", dir=path.parent)
     try:
-        os.chmod(path, stat.S_IRUSR | stat.S_IWUSR)
-    except OSError:
-        logger.debug("Could not chmod %s — non-POSIX filesystem?", path)
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            fh.write(json.dumps(overlay, indent=2, sort_keys=True))
+        try:
+            os.chmod(tmp, stat.S_IRUSR | stat.S_IWUSR)
+        except OSError:
+            logger.debug("Could not chmod %s — non-POSIX filesystem?", tmp)
+        os.replace(tmp, path)
+    except BaseException:
+        with contextlib.suppress(OSError):
+            os.unlink(tmp)
+        raise
 
 
 def _preview(value: str) -> str:
@@ -185,8 +247,11 @@ def reset_cache() -> None:
         _overlay = None
 
 
-def use_path(new_path: str) -> None:
-    """Swap the persistence path and drop the cache. Test helper."""
+def use_path(new_path: str | None) -> None:
+    """Swap the persistence path and drop the cache. Test helper.
+
+    ``None`` restores lazy resolution from the environment.
+    """
     global _path, _overlay
     with _lock:
         _path = new_path
@@ -195,4 +260,4 @@ def use_path(new_path: str) -> None:
 
 def current_path() -> str:
     """Return the path the overlay is being read from / persisted to."""
-    return _path
+    return _path if _path is not None else _default_path()

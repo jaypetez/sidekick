@@ -21,6 +21,7 @@ from datetime import UTC, datetime
 from typing import Any
 from zoneinfo import ZoneInfo
 
+from .. import runtime_config
 from .base import CalendarProvider
 
 
@@ -68,7 +69,7 @@ class ChronaryProvider(CalendarProvider):
     ) -> None:
         self.agent_id = agent_id or os.environ["CHRONARY_AGENT_ID"]
         self.calendar_id = calendar_id or os.environ["CHRONARY_CALENDAR_ID"]
-        self.timezone = timezone or os.getenv("TIMEZONE") or "America/Chicago"
+        self.timezone = timezone or runtime_config.timezone_name()
         self.client = client if client is not None else _build_client(api_key)
 
     def list_events(self, args: dict[str, Any]) -> list[dict[str, Any]]:

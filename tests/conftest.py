@@ -20,7 +20,7 @@ def isolated_runtime_config(tmp_path, monkeypatch):
     path = str(tmp_path / "runtime.json")
     runtime_config.use_path(path)
     yield path
-    runtime_config.use_path(runtime_config._default_path())
+    runtime_config.use_path(None)
     runtime_config.reset_cache()
 
 

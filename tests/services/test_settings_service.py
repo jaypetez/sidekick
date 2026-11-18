@@ -76,3 +76,44 @@ def test_snapshot_redacts_by_default():
     assert isinstance(val, dict)
     assert val["set"] is True
     assert "sk-test" not in str(val)
+
+
+@pytest.mark.asyncio
+async def test_update_is_all_or_nothing():
+    """A bad value anywhere in the batch must leave every key untouched."""
+    with pytest.raises(runtime_config.ConfigError):
+        await settings_service.update({"CLAUDE_MODEL": "claude-x", "TIMEZONE": "Not/AZone"})
+    assert runtime_config.get("CLAUDE_MODEL") != "claude-x"
+
+
+@pytest.mark.asyncio
+async def test_update_reports_timezone_needs_restart():
+    result = await settings_service.update({"TIMEZONE": "Europe/Paris"})
+    assert result["restart_required"] == ["TIMEZONE"]
+
+
+@pytest.mark.asyncio
+async def test_update_reapplies_reminder_jobs(monkeypatch):
+    scheduler = MagicMock()
+    calls: list[object] = []
+    monkeypatch.setattr(
+        "sidekick.reminders.apply_builtin_settings",
+        lambda s: calls.append(s) or [],
+    )
+    result = await settings_service.update({"MORNING_REMINDER_TIME": "06:45"}, scheduler=scheduler)
+    assert calls == [scheduler]
+    assert result["restart_required"] == []
+
+
+@pytest.mark.asyncio
+async def test_update_skips_reminder_jobs_for_unrelated_keys(monkeypatch):
+    called = False
+
+    def _apply(_s):
+        nonlocal called
+        called = True
+        return []
+
+    monkeypatch.setattr("sidekick.reminders.apply_builtin_settings", _apply)
+    await settings_service.update({"CLAUDE_MODEL": "m"}, scheduler=MagicMock())
+    assert called is False

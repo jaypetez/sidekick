@@ -54,7 +54,7 @@ async def test_settings_update_rejects_non_editable_key(client):
     resp = await client.patch("/api/settings", json={"TELEGRAM_BOT_TOKEN": "abc"})
     assert resp.status == 400
     payload = await resp.json()
-    assert payload["error"]["code"] == "not_editable"
+    assert payload["error"]["code"] == "invalid_setting"
 
 
 @pytest.mark.asyncio
@@ -130,3 +130,12 @@ async def test_test_llm_returns_502_on_probe_failure(client, monkeypatch):
     assert resp.status == 502
     payload = await resp.json()
     assert payload["error"]["code"] == "probe_failed"
+
+
+@pytest.mark.asyncio
+async def test_settings_update_rejects_invalid_value(client):
+    resp = await client.patch("/api/settings", json={"MORNING_REMINDER_TIME": "25:99"})
+    assert resp.status == 400
+    payload = await resp.json()
+    assert payload["error"]["code"] == "invalid_setting"
+    assert "HH:MM" in payload["error"]["message"]

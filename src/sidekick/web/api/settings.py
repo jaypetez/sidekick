@@ -58,9 +58,13 @@ async def update(request: web.Request) -> web.Response:
             return error("invalid_value", f"unsupported value type for {key}", status=400)
 
     try:
-        result = await settings_service.update(changes, agent=_agent_or_none(request))
+        result = await settings_service.update(
+            changes,
+            agent=_agent_or_none(request),
+            scheduler=request.config_dict["bot_data"].get("scheduler"),
+        )
     except runtime_config.ConfigError as exc:
-        return error("not_editable", str(exc), status=400)
+        return error("invalid_setting", str(exc), status=400)
     return ok(
         {
             **result,

@@ -46,3 +46,19 @@ async def test_service_unavailable_wrapped_as_envelope(aiohttp_client):
     assert resp.status == 503
     payload = await resp.json()
     assert payload["error"]["code"] == "service_unavailable"
+
+
+@pytest.mark.asyncio
+async def test_unhandled_error_does_not_leak_exception_text(aiohttp_client, bot_data):
+    from unittest.mock import MagicMock
+
+    from sidekick.web import make_app
+
+    store = MagicMock()
+    store.list_task_lists.side_effect = RuntimeError("/home/app/.config/sidekick/secret.db")
+    c = await aiohttp_client(make_app(bot_data=bot_data, task_store=store))
+    resp = await c.get("/api/tasks")
+    assert resp.status == 500
+    payload = await resp.json()
+    assert payload["error"]["code"] == "internal_error"
+    assert "secret.db" not in payload["error"]["message"]
