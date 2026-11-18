@@ -24,7 +24,7 @@ from ..calendar.chronary import ChronaryProvider
 from ..storage.sqlite_tasks import SQLiteTaskStore
 from . import csrf as csrf_mod
 from .api import make_api_app
-from .auth import get_auth_token, load_or_create_session_secret
+from .auth import SESSION_MAX_AGE_SECONDS, get_auth_token, load_or_create_session_secret
 from .handlers import (
     calendar_routes,
     chat,
@@ -40,6 +40,7 @@ from .handlers import (
 from .middleware import (
     auth_middleware,
     csrf_middleware,
+    host_check_middleware,
     security_headers_middleware,
 )
 
@@ -105,7 +106,15 @@ def _build_session_storage() -> AbstractStorage:
     """
     secret = load_or_create_session_secret()
     try:
-        return EncryptedCookieStorage(secret, cookie_name="SIDEKICK_SESSION", httponly=True)
+        return EncryptedCookieStorage(
+            secret,
+            cookie_name="SIDEKICK_SESSION",
+            httponly=True,
+            # Lax: the cookie still rides top-level navigations (links into
+            # the dashboard keep you logged in) but never cross-site POSTs.
+            samesite="Lax",
+            max_age=SESSION_MAX_AGE_SECONDS,
+        )
     except Exception:  # pragma: no cover - cryptography missing
         from aiohttp_session import SimpleCookieStorage
 
@@ -134,6 +143,7 @@ def make_app(
     # the login POST itself using the session-bound token.
     middlewares: list[Any] = [
         security_headers_middleware,
+        host_check_middleware,
         _no_cache_html_middleware,
         session_middleware(storage),
         csrf_middleware,

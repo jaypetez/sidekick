@@ -83,6 +83,11 @@ logging.basicConfig(
     format="%(asctime)s %(levelname)s %(name)s — %(message)s",
     level=logging.INFO,
 )
+# httpx logs every request URL at INFO, and python-telegram-bot's URLs embed
+# the bot token (https://api.telegram.org/bot<TOKEN>/getUpdates) — that would
+# put the token in the log on every long-poll. Keep httpx at WARNING; the
+# redaction filter below is the second line of defense.
+logging.getLogger("httpx").setLevel(logging.WARNING)
 install_redaction_filter()
 logger = logging.getLogger(__name__)
 
@@ -136,13 +141,29 @@ def _build_mcp_env() -> dict[str, str]:
 # ---------------------------------------------------------------------------
 
 
-async def handle_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    assert update.message is not None
+async def _require_allowed(update: Update) -> bool:
+    """Gate a command handler on the Telegram allowlist.
+
+    Returns ``True`` when the handler may proceed. Updates without a
+    message (e.g. an *edited* ``/reset``) are ignored rather than tripping
+    an assert. Every command goes through here — ``/personality`` in
+    particular rewrites the system prompt for all chats, so it must never
+    be reachable by a stranger who finds the bot.
+    """
+    if update.message is None or update.effective_chat is None:
+        return False
     user = update.effective_user
     if not is_allowed(getattr(user, "id", None), _telegram_allowlist()):
         _deny(update, reason="not_allowlisted")
         await update.message.reply_text(DENIED_MESSAGE)
+        return False
+    return True
+
+
+async def handle_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not await _require_allowed(update):
         return
+    assert update.message is not None
     await update.message.reply_text(
         "Hi! I'm Sidekick, your personal assistant.\n\n"
         "Just talk to me naturally — try things like:\n"
@@ -157,6 +178,8 @@ async def handle_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 
 
 async def handle_reset(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not await _require_allowed(update):
+        return
     assert update.effective_chat is not None and update.message is not None
     agent: SidekickAgent = context.bot_data["agent"]
     agent.clear_history(update.effective_chat.id)
@@ -164,6 +187,8 @@ async def handle_reset(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 
 
 async def handle_get_id(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not await _require_allowed(update):
+        return
     assert update.effective_chat is not None and update.message is not None
     chat_id = update.effective_chat.id
     await update.message.reply_text(
@@ -174,6 +199,8 @@ async def handle_get_id(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 
 
 async def handle_personality(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not await _require_allowed(update):
+        return
     assert update.message is not None
     agent: SidekickAgent = context.bot_data["agent"]
     args = " ".join(context.args) if context.args else ""
@@ -407,7 +434,7 @@ async def _run_web(bot_data: dict[str, Any]) -> None:
 
     from .calendar.chronary import ChronaryProvider
     from .storage.sqlite_tasks import SQLiteTaskStore
-    from .web.auth import get_auth_token, is_loopback_host
+    from .web.auth import auth_token_problem, get_auth_token, is_loopback_host
 
     host = os.getenv("SIDEKICK_WEB_HOST", "127.0.0.1")
     port = int(os.getenv("SIDEKICK_WEB_PORT", "8080"))
@@ -422,6 +449,16 @@ async def _run_web(bot_data: dict[str, Any]) -> None:
             "SIDEKICK_WEB_AUTH_TOKEN set. Either bind to 127.0.0.1/localhost/::1 "
             "or set SIDEKICK_WEB_AUTH_TOKEN to a strong random value.",
             host,
+        )
+        return
+
+    token = get_auth_token()
+    problem = auth_token_problem(token) if token is not None else None
+    if problem is not None:
+        logger.error(
+            "Refusing to start web dashboard: SIDEKICK_WEB_AUTH_TOKEN is unsafe (%s). "
+            'Generate one with: python -c "import secrets; print(secrets.token_urlsafe(32))"',
+            problem,
         )
         return
 

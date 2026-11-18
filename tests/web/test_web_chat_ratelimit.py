@@ -55,7 +55,9 @@ async def test_eleventh_request_returns_429(chat_client):
 
 
 @pytest.mark.asyncio
-async def test_different_xff_keys_are_isolated(chat_client):
+async def test_different_xff_keys_are_isolated(chat_client, monkeypatch):
+    # XFF is only trusted behind a declared reverse proxy.
+    monkeypatch.setenv("SIDEKICK_WEB_TRUST_PROXY", "true")
     # First client uses up its budget.
     for _ in range(10):
         resp = await chat_client.post(
@@ -82,3 +84,20 @@ async def test_different_xff_keys_are_isolated(chat_client):
         allow_redirects=False,
     )
     assert resp.status in (200, 303)
+
+
+@pytest.mark.asyncio
+async def test_spoofed_xff_cannot_dodge_limit_by_default(chat_client, monkeypatch):
+    """Without SIDEKICK_WEB_TRUST_PROXY, rotating X-Forwarded-For doesn't
+    buy a fresh bucket — every request counts against the peer address."""
+    monkeypatch.delenv("SIDEKICK_WEB_TRUST_PROXY", raising=False)
+    statuses = []
+    for i in range(11):
+        resp = await chat_client.post(
+            "/chat",
+            data={"message": "hi"},
+            headers={"X-Forwarded-For": f"10.0.0.{i}"},
+            allow_redirects=False,
+        )
+        statuses.append(resp.status)
+    assert statuses[-1] == 429

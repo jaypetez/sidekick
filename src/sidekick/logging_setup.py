@@ -21,11 +21,17 @@ _SECRET_RE = re.compile(
     r"(['\"]?)([^\s'\",;]+)\3"
 )
 
+# Telegram bot tokens (``123456789:AA...``, 35-char secret part) carry no
+# ``token=`` keyword — they appear bare inside API URLs like
+# ``https://api.telegram.org/bot<TOKEN>/getUpdates``.
+_TELEGRAM_TOKEN_RE = re.compile(r"\b(?:bot)?(\d{6,12}):[A-Za-z0-9_-]{30,}")
+
 _MAX_STR_LEN = 200
 
 
 def _redact(text: str) -> str:
-    return _SECRET_RE.sub(lambda m: f"{m.group(1)}{m.group(2)}[REDACTED]", text)
+    text = _SECRET_RE.sub(lambda m: f"{m.group(1)}{m.group(2)}[REDACTED]", text)
+    return _TELEGRAM_TOKEN_RE.sub(lambda m: f"bot{m.group(1)}:[REDACTED]", text)
 
 
 def safe_repr(value: object) -> str:
@@ -52,9 +58,22 @@ class RedactionFilter(logging.Filter):
 
 
 def _redact_arg(value: object) -> object:
+    """Redact one ``%``-format argument.
+
+    Non-string args (``httpx.URL``, exceptions, dicts) are rendered with
+    ``str()`` and replaced by the redacted string *only* when redaction
+    changed something, so ``%d``-style args keep their type in the common case.
+    """
     if isinstance(value, str):
         return _redact(value)
-    return value
+    if isinstance(value, int | float | bool) or value is None:
+        return value
+    try:
+        rendered = str(value)
+    except Exception:  # noqa: BLE001 — a broken __str__ must never kill logging
+        return value
+    redacted = _redact(rendered)
+    return redacted if redacted != rendered else value
 
 
 def install_redaction_filter() -> None:

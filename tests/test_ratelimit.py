@@ -118,3 +118,31 @@ def test_reset_clears_buckets(monkeypatch):
     limiter.reset()
     assert limiter._buckets == {}  # noqa: SLF001
     ratelimit.reset_default_limiter()
+
+
+@pytest.mark.asyncio
+async def test_idle_buckets_are_pruned(monkeypatch):
+    """One bucket per distinct caller must not accumulate forever."""
+    monkeypatch.setattr(ratelimit, "_PRUNE_THRESHOLD", 5)
+    clock = [1000.0]
+    monkeypatch.setattr(ratelimit.time, "monotonic", lambda: clock[0])
+    limiter = ratelimit.RateLimiter(max_requests=2, window_seconds=10)
+    for i in range(5):
+        assert await limiter.acquire(f"caller-{i}")
+    assert len(limiter) == 5
+
+    clock[0] += 60  # everyone has refilled completely
+    assert await limiter.acquire("newcomer")
+    assert len(limiter) == 1
+
+
+@pytest.mark.asyncio
+async def test_pruning_keeps_drained_buckets(monkeypatch):
+    monkeypatch.setattr(ratelimit, "_PRUNE_THRESHOLD", 2)
+    clock = [1000.0]
+    monkeypatch.setattr(ratelimit.time, "monotonic", lambda: clock[0])
+    limiter = ratelimit.RateLimiter(max_requests=1, window_seconds=100)
+    assert await limiter.acquire("hot")
+    assert await limiter.acquire("other")
+    clock[0] += 1  # "hot" is still empty; pruning must not reset it
+    assert not await limiter.acquire("hot")

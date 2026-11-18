@@ -126,3 +126,47 @@ async def test_rate_limited_user_skips_agent(monkeypatch):
     assert agent.process_message.await_count == 2
     body = update.message.reply_text.await_args.args[0]
     assert "too quickly" in body.lower()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("handler_name", ["handle_reset", "handle_get_id", "handle_personality"])
+async def test_commands_deny_non_allowlisted_users(monkeypatch, handler_name):
+    """Every command is gated — /personality rewrites the system prompt for
+    all chats, so a stranger must not be able to reach it."""
+    monkeypatch.setenv("TELEGRAM_ALLOWED_USER_IDS", "7")
+    agent = MagicMock()
+    update = _make_update(user_id=999, text="/cmd")
+    context = _make_context(agent)
+    context.args = ["pirate"]
+
+    await getattr(bot_module, handler_name)(update, context)
+
+    agent.set_personality.assert_not_called()
+    agent.clear_history.assert_not_called()
+    update.message.reply_text.assert_awaited_once()
+    assert "allowlist" in update.message.reply_text.await_args.args[0].lower()
+
+
+@pytest.mark.asyncio
+async def test_personality_allowed_for_allowlisted_user(monkeypatch):
+    monkeypatch.setenv("TELEGRAM_ALLOWED_USER_IDS", "7")
+    agent = MagicMock()
+    agent.set_personality.return_value = "pirate"
+    update = _make_update(user_id=7, text="/personality pirate")
+    context = _make_context(agent)
+    context.args = ["pirate"]
+
+    await bot_module.handle_personality(update, context)
+
+    agent.set_personality.assert_called_once_with("pirate")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "handler_name", ["handle_start", "handle_reset", "handle_get_id", "handle_personality"]
+)
+async def test_commands_ignore_updates_without_message(handler_name):
+    """An *edited* command arrives with ``update.message is None``."""
+    update = MagicMock()
+    update.message = None
+    await getattr(bot_module, handler_name)(update, _make_context(MagicMock()))

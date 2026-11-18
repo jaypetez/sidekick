@@ -19,7 +19,7 @@ import aiohttp_jinja2
 from aiohttp import web
 
 from ...ratelimit import get_default_limiter
-from ..helpers import run_sync
+from ..helpers import client_ip, run_sync
 
 logger = logging.getLogger(__name__)
 
@@ -88,19 +88,11 @@ async def index(request: web.Request) -> dict[str, Any]:
 def _rate_limit_key(request: web.Request) -> str:
     """Derive a per-caller key for rate limiting.
 
-    Preference order: an explicit ``X-Forwarded-For`` (when the dashboard
-    sits behind a reverse proxy), the peer remote address, the aiohttp
-    session id if any, finally the literal string ``web``. This matches
-    the spec's "session id or XFF if present, else 'web'" guidance while
-    being robust to missing peer info.
+    Uses :func:`client_ip`, which only honors ``X-Forwarded-For`` when
+    ``SIDEKICK_WEB_TRUST_PROXY`` is set — otherwise a caller could rotate
+    that header to get a fresh bucket on every request.
     """
-    xff = request.headers.get("X-Forwarded-For")
-    if xff:
-        return f"xff:{xff.split(',')[0].strip()}"
-    remote = request.remote
-    if remote:
-        return f"ip:{remote}"
-    return "web"
+    return f"ip:{client_ip(request)}"
 
 
 async def send(request: web.Request) -> web.Response:
