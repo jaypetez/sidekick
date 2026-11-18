@@ -24,6 +24,12 @@ from zoneinfo import ZoneInfo
 from .. import runtime_config
 from .base import CalendarProvider
 
+# list_events: default and hard cap on events returned, and the page size
+# requested from the API while following pages.
+DEFAULT_MAX_EVENTS = 100
+MAX_EVENTS = 250
+PAGE_SIZE = 100
+
 
 def _to_utc_z(dt: datetime) -> str:
     """Format an aware datetime as ``YYYY-MM-DDTHH:MM:SSZ``.
@@ -75,7 +81,7 @@ class ChronaryProvider(CalendarProvider):
     def list_events(self, args: dict[str, Any]) -> list[dict[str, Any]]:
         start_date = args["start_date"]
         end_date = args["end_date"]
-        max_results = args.get("max_results", 20)
+        max_results = max(1, min(int(args.get("max_results") or DEFAULT_MAX_EVENTS), MAX_EVENTS))
 
         tz = ZoneInfo(self.timezone)
         start_after = _to_utc_z(datetime.strptime(start_date, "%Y-%m-%d").replace(tzinfo=tz))
@@ -91,16 +97,26 @@ class ChronaryProvider(CalendarProvider):
         # (``client.agents.events.list``) only returns events the agent owns;
         # events created via the dashboard's ``POST /events`` form go through
         # the calendar endpoint and never appear under the agent.
-        result = self.client.events.list(
-            self.calendar_id,
-            start_after=start_after,
-            start_before=start_before,
-            limit=max_results,
-        )
-        # SDK >=0.1.x returns a ``SyncPager`` (not directly iterable); fall back
-        # to plain-list for the test doubles that pre-date this API change.
-        events = result.data if hasattr(result, "data") else list(result)
-        return [_event_to_dict(e) for e in events]
+        #
+        # The SDK returns one page (a ``SyncPager`` with ``data``/``total``);
+        # follow ``offset`` until we have ``max_results`` or everything. Taking
+        # only the first page silently truncated "what's on this month?".
+        events: list[Any] = []
+        while len(events) < max_results:
+            result = self.client.events.list(
+                self.calendar_id,
+                start_after=start_after,
+                start_before=start_before,
+                limit=min(PAGE_SIZE, max_results - len(events)),
+                offset=len(events) or None,
+            )
+            # Plain lists are accepted for the older test doubles.
+            page = list(result.data) if hasattr(result, "data") else list(result)
+            events.extend(page)
+            total = _attr(result, "total")
+            if not page or not isinstance(total, int) or len(events) >= total:
+                break
+        return [_event_to_dict(e) for e in events[:max_results]]
 
     def create_event(self, args: dict[str, Any]) -> dict[str, Any]:
         # Chronary's API rejects offset and naive datetime forms — normalize
@@ -203,6 +219,11 @@ def _event_to_dict(event: Any) -> dict[str, Any]:
         "description": _attr(event, "description", ""),
         "location": metadata.get("location", ""),
         "attendees": metadata.get("attendees", []),
+        # Lets the LLM tell holds/cancellations and recurring instances apart
+        # from ordinary confirmed events, and render all-day events as such.
+        "status": _attr(event, "status", "confirmed"),
+        "all_day": bool(_attr(event, "all_day", False)),
+        "recurring_event_id": _attr(event, "recurring_event_id"),
     }
 
 
