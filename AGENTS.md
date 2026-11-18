@@ -27,6 +27,10 @@ pytest                             # enforces the 80% coverage floor (--cov-fail
 # Non-required but PR-failing security checks
 bandit -r src/sidekick -ll -ii -c pyproject.toml
 
+# Leaked-secret scan: gitleaks over all history + the real .env values (prints names only).
+# Run it where the real .env lives; procedure in .claude/skills/secret-scan/SKILL.md
+python scripts/scan_secrets.py
+
 # Iterating
 pytest --no-cov
 pytest tests/test_storage_tasks.py
