@@ -12,7 +12,7 @@ Ideas for future bot capabilities, roughly ordered by usefulness and ease of imp
 
 ## ~~⏰ Scheduled Reminders~~ ✅ Done
 
-**Status:** Shipped — users can add, update, list, and remove recurring reminders through chat. Four local tools: `list_reminders`, `add_reminder`, `update_reminder`, `remove_reminder`. Custom reminders persist to `~/.config/sidekick/reminders.json` and restore on restart. Built-in morning summary and pre-event alerts can be modified or disabled via chat.
+**Status:** Shipped — users can add, update, list, and remove recurring reminders through chat. Four local tools: `list_reminders`, `add_reminder`, `update_reminder`, `remove_reminder`. Custom reminders persist to `$SIDEKICK_CONFIG_DIR/reminders.json` (default `~/.config/sidekick`) and restore on restart. Built-in morning summary and pre-event alerts can be modified or paused via chat or the dashboard. Pre-event alerts can come from polling (every 5 minutes) or from Chronary `event.reminder` webhook pushes (`PRE_EVENT_SOURCE=webhook`, managed with `sidekick-webhook`).
 
 ---
 
@@ -21,35 +21,47 @@ Ideas for future bot capabilities, roughly ordered by usefulness and ease of imp
 **Status:** Shipped — calendar lives on Chronary.ai via the official Python SDK. Four MCP tools: `list_events`, `create_event`, `update_event`, `delete_event`. First-run bootstrap is `sidekick-init`.
 
 Open follow-ups:
-- **Recurring events.** Chronary's REST surface doesn't document RRULE; the bot creates individual instances when asked for "every X".
+- **Recurring events.** Sidekick doesn't create recurring series; asked for "every X", it creates individual events. Instances of existing recurring series are listed with their series ID.
 - **`location` and `attendees`.** Not first-class fields in Chronary — stashed in event `metadata`. Round-trips correctly on list/get.
 
 ---
 
-## ~~💬 Multi-platform chat~~ ✅ Done — Telegram + Slack
+## ~~💬 Multi-platform chat~~ ✅ Done — Web + Telegram + Slack
 
-**Status:** Shipped — Slack adapter runs concurrently with Telegram when `SLACK_BOT_TOKEN` and `SLACK_APP_TOKEN` are set. `ChatPlatform` ABC ready for a WhatsApp adapter when needed.
+**Status:** Shipped — the in-browser chat is always available (and is the only surface in web-only mode, with no Telegram token). Telegram runs when `TELEGRAM_BOT_TOKEN` is set. The Slack adapter runs alongside when both `SLACK_BOT_TOKEN` and `SLACK_APP_TOKEN` are set. Slack implements the `ChatPlatform` ABC, which is ready for a WhatsApp adapter; Telegram is still wired directly in `bot.py`.
 
 Open follow-ups:
-- **Reminders on Slack.** Morning summary and pre-event check still fire only on Telegram. Multi-platform reminder delivery is the natural next step — extend `REMINDER_CHAT_ID` to a comma-separated `tg:…,sl:…` list.
+- **Reminders on Slack and web.** Morning summary, pre-event and custom reminders still fire only on Telegram. Multi-platform reminder delivery is the natural next step — extend `REMINDER_CHAT_ID` to a comma-separated list of platform-prefixed targets.
 
 ---
 
 ## ~~🤖 Local LLM (Ollama)~~ ✅ Done
 
-**Status:** Shipped — set `LLM_PROVIDER=ollama` and the bot routes through a local Ollama server. Recommended tool-capable models: `llama3.1:8b`, `qwen2.5:7b`. Tool-use reliability is materially below Claude's on multi-tool plans — acceptable for hobby/offline use.
+**Status:** Shipped — set `LLM_PROVIDER=ollama` and the bot routes through a local Ollama server. Recommended tool-capable models: `qwen2.5:14b` (best tool use we tested at ≤16GB VRAM), `qwen2.5:7b`, `llama3.1:8b`. Provider, model and Ollama tuning can be switched live on the Settings page. Tool-use reliability is materially below Claude's on multi-tool plans — acceptable for hobby/offline use.
 
 ---
 
 ## ~~🐳 Docker self-hosting~~ ✅ Done
 
-**Status:** Shipped — `docker compose up` brings up the bot. Ollama service is gated behind the `ollama` profile so users on the Anthropic path don't pull a 5GB image they won't run. NVIDIA GPU passthrough scaffolded as commented config.
+**Status:** Shipped — `docker compose up` brings up the bot. Ollama service is gated behind the `ollama` profile so users on the Anthropic path don't pull a 5GB image they won't run. NVIDIA GPU passthrough is an opt-in override file, `docker-compose.gpu.yml`. Published images are built from tags and pushed to GHCR.
+
+---
+
+## ~~🖥️ Web dashboard, JSON API and CLI~~ ✅ Done
+
+**Status:** Shipped — an in-process aiohttp dashboard with Chat, Dashboard, Reminders, Tasks, Calendar, Settings and System pages. Settings edits persist to `runtime.json` and apply live (LLM, Ollama tuning, reminder times, pre-event source); the System page shows every setting with its effective value and source. Everything is also exposed as JSON under `/api/*`, and `sidekick-cli` drives it from the terminal.
+
+---
+
+## ~~🔒 Access control and hardening~~ ✅ Done
+
+**Status:** Shipped — closed-by-default user allowlists for Telegram and Slack (plus an optional Slack channel allowlist), per-user chat rate limiting, an optional dashboard token with a sign-in form (required for non-loopback binds), CSRF and Host-header checks, security headers, secret redaction in logs, and a scoped environment for the MCP subprocess. See [docs/security.md](docs/security.md).
 
 ---
 
 ## 🌤️ Weather
 
-**Status:** Next up
+**Status:** Planned
 **Difficulty:** Easy
 **Backend:** Open-Meteo API (free, no API key needed)
 
@@ -77,7 +89,7 @@ When you ask about events, Claude automatically combines the answers:
 | `mcp_server.py` | Add `get_weather` tool — HTTP call to Open-Meteo API |
 | `agent.py` | Update system prompt to tell Claude about weather |
 | `.env.example` | Add `FAMILY_LATITUDE` and `FAMILY_LONGITUDE` |
-| No new dependencies | `urllib` from stdlib handles the API call |
+| No new dependencies | `httpx` (already a dependency) handles the API call |
 
 ### Setup required
 - Add two lines to `.env`:
@@ -144,7 +156,7 @@ A status board. No GPS or tracking — people post their status as plain text an
 - New SQLite table: `checkins(user_id, status, timestamp)`
 - Bot watches for messages that look like check-ins (uses Claude to classify) vs regular conversation
 - Or a `/checkin` command for explicit status updates
-- Works across both Telegram and Slack now that platforms are abstracted
+- Works on every chat surface (web, Telegram, Slack), since it only needs the incoming message
 
 ---
 
@@ -183,10 +195,13 @@ The `ChatPlatform` abstraction is ready for a third adapter. Twilio is easier to
 | 4 | Slack adapter | ✅ Done |
 | 5 | Local LLM (Ollama) | ✅ Done |
 | 6 | Docker self-hosting | ✅ Done |
-| 7 | Multi-platform reminders | Next up — small follow-on to Slack adapter |
-| 8 | Weather | Planned — easy, high daily utility |
-| 9 | Birthday reminders | Planned — reuses existing calendar tools |
-| 10 | Quick notes / wiki | Planned |
-| 11 | Meal planning | Planned |
-| 12 | Location check-in | Planned |
-| 13 | WhatsApp adapter | When demand justifies it |
+| 7 | Web dashboard, `/api`, `sidekick-cli` | ✅ Done |
+| 8 | Chronary push reminders (webhooks) | ✅ Done |
+| 9 | Access control and hardening | ✅ Done |
+| 10 | Multi-platform reminders | Next up — small follow-on to the Slack adapter |
+| 11 | Weather | Planned — easy, high daily utility |
+| 12 | Birthday reminders | Planned — reuses existing calendar tools |
+| 13 | Quick notes / wiki | Planned |
+| 14 | Meal planning | Planned |
+| 15 | Location check-in | Planned |
+| 16 | WhatsApp adapter | When demand justifies it |
