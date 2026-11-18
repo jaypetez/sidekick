@@ -55,16 +55,19 @@ async def create(request: web.Request) -> web.Response:
     chat_id_raw = str(form.get("chat_id", "")).strip()
     chat_id = int(chat_id_raw) if chat_id_raw else 0
 
-    await run_sync(
-        add_reminder,
-        scheduler,
-        agent,
-        message,
-        hour,
-        minute,
-        chat_id,
-        day_of_week,
-    )
+    try:
+        await run_sync(
+            add_reminder,
+            scheduler,
+            agent,
+            message,
+            hour,
+            minute,
+            chat_id,
+            day_of_week,
+        )
+    except ValueError as exc:
+        raise web.HTTPBadRequest(reason=str(exc)) from exc
     raise web.HTTPSeeOther(location="/reminders")
 
 
@@ -85,17 +88,20 @@ async def update(request: web.Request) -> web.Response:
     minute_raw = str(form.get("minute", "")).strip()
     day_raw = str(form.get("day_of_week", "")).strip()
 
-    result = await run_sync(
-        update_reminder,
-        scheduler,
-        agent,
-        reminder_id,
-        message,
-        int(hour_raw) if hour_raw else None,
-        int(minute_raw) if minute_raw else None,
-        day_raw or None,
-        enabled,
-    )
+    try:
+        result = await run_sync(
+            update_reminder,
+            scheduler,
+            agent,
+            reminder_id,
+            message,
+            int(hour_raw) if hour_raw else None,
+            int(minute_raw) if minute_raw else None,
+            day_raw or None,
+            enabled,
+        )
+    except ValueError as exc:
+        raise web.HTTPBadRequest(reason=str(exc)) from exc
     if "error" in result:
         raise web.HTTPBadRequest(reason=result["error"])
     raise web.HTTPSeeOther(location="/reminders")

@@ -55,6 +55,8 @@ async def create(request: web.Request) -> web.Response:
             chat_id=chat_id,
             day_of_week=day_of_week,
         )
+    except ValueError as exc:
+        return error("invalid_field", str(exc), status=400)
     except Exception as exc:
         logger.exception("reminder create failed")
         return error("scheduler_error", str(exc), status=502)

@@ -4,6 +4,7 @@ from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from telegram.constants import ParseMode
 
 from sidekick.reminders import (
     _REMINDER_CHAT_ID,
@@ -205,8 +206,9 @@ async def test_send_custom_reminder_processes_through_agent(monkeypatch):
     run_chat_id, prompt = agent.process_message.call_args.args
     assert run_chat_id.startswith(f"{_REMINDER_CHAT_ID}:")
     assert prompt == "What's on the calendar today?"
+    # Sent via send_safe: MarkdownV2 with the LLM text escaped.
     agent.bot.send_message.assert_called_once_with(
-        chat_id=-100999, text="You have 3 events today.", parse_mode="Markdown"
+        chat_id=-100999, text="You have 3 events today\\.", parse_mode=ParseMode.MARKDOWN_V2
     )
     # The per-run history is discarded afterwards.
     agent.clear_history.assert_called_once_with(run_chat_id)

@@ -87,7 +87,15 @@ def test_events_from_tool_result_parses_json_list():
 
 def test_events_from_tool_result_rejects_non_list_payload():
     block = SimpleNamespace(text='{"id": "e1"}')
-    assert reminders._events_from_tool_result([block]) == []
+    with pytest.raises(ValueError, match="expected a list"):
+        reminders._events_from_tool_result([block])
+
+
+def test_events_from_tool_result_raises_on_error_payload():
+    """MCP reports failures as ordinary text; that must not read as 'no events'."""
+    block = SimpleNamespace(text='{"error": "Chronary 503"}')
+    with pytest.raises(ValueError, match="Chronary 503"):
+        reminders._events_from_tool_result([block])
 
 
 # -------------------------------------------------------------------
@@ -160,7 +168,7 @@ async def test_send_morning_summary_swallows_send_failure():
 @pytest.mark.asyncio
 async def test_send_pre_event_reminders_skips_all_day_events(monkeypatch):
     """Events without 'T' in their start are all-day; must not generate alerts."""
-    monkeypatch.setattr(reminders, "_reminded_event_ids", set())
+    monkeypatch.setattr(reminders, "_reminded_events", {})
     bot = MagicMock()
     bot.send_message = AsyncMock()
     session = MagicMock()
@@ -178,7 +186,7 @@ async def test_send_pre_event_reminders_dedupes_same_event(monkeypatch):
     from datetime import datetime, timedelta
     from zoneinfo import ZoneInfo
 
-    monkeypatch.setattr(reminders, "_reminded_event_ids", set())
+    monkeypatch.setattr(reminders, "_reminded_events", {})
     tz = ZoneInfo("America/Chicago")
     # Schedule the event 10 minutes from "now".
     upcoming = (datetime.now(tz) + timedelta(minutes=10)).isoformat()
@@ -199,9 +207,146 @@ async def test_send_pre_event_reminders_dedupes_same_event(monkeypatch):
     assert "Standup" in bot.send_message.await_args.kwargs["text"]
 
 
+def _events_session(events):
+    session = MagicMock()
+    session.call_tool = AsyncMock(
+        return_value=SimpleNamespace(content=[SimpleNamespace(text=json.dumps(events))])
+    )
+    return session
+
+
+def _soon(minutes: int = 10) -> str:
+    from datetime import datetime, timedelta
+    from zoneinfo import ZoneInfo
+
+    return (datetime.now(ZoneInfo("America/Chicago")) + timedelta(minutes=minutes)).isoformat()
+
+
+@pytest.mark.asyncio
+async def test_failed_fetch_does_not_cause_duplicate_reminders(monkeypatch):
+    """Regression: an MCP error payload used to read as [] and prune every
+    already-reminded id, so the next good poll re-sent all of them."""
+    monkeypatch.setattr(reminders, "_reminded_events", {})
+    bot = MagicMock()
+    bot.send_message = AsyncMock()
+    event = {"id": "e1", "summary": "Standup", "start": _soon()}
+
+    await reminders.send_pre_event_reminders(bot, _events_session([event]), "-1", 30)
+    await reminders.send_pre_event_reminders(bot, _events_session({"error": "503"}), "-1", 30)
+    await reminders.send_pre_event_reminders(bot, _events_session([event]), "-1", 30)
+
+    assert bot.send_message.await_count == 1
+
+
+@pytest.mark.asyncio
+async def test_event_missing_from_truncated_list_is_not_re_reminded(monkeypatch):
+    """Dropping out of a (50-capped) result set must not reset the dedupe."""
+    monkeypatch.setattr(reminders, "_reminded_events", {})
+    bot = MagicMock()
+    bot.send_message = AsyncMock()
+    event = {"id": "e1", "summary": "Standup", "start": _soon()}
+
+    await reminders.send_pre_event_reminders(bot, _events_session([event]), "-1", 30)
+    await reminders.send_pre_event_reminders(bot, _events_session([]), "-1", 30)
+    await reminders.send_pre_event_reminders(bot, _events_session([event]), "-1", 30)
+
+    assert bot.send_message.await_count == 1
+
+
+@pytest.mark.asyncio
+async def test_rescheduled_event_gets_a_new_reminder(monkeypatch):
+    monkeypatch.setattr(reminders, "_reminded_events", {})
+    bot = MagicMock()
+    bot.send_message = AsyncMock()
+
+    await reminders.send_pre_event_reminders(
+        bot, _events_session([{"id": "e1", "summary": "A", "start": _soon(10)}]), "-1", 30
+    )
+    await reminders.send_pre_event_reminders(
+        bot, _events_session([{"id": "e1", "summary": "A", "start": _soon(20)}]), "-1", 30
+    )
+    assert bot.send_message.await_count == 2
+
+
+@pytest.mark.asyncio
+async def test_past_events_are_pruned(monkeypatch):
+    from datetime import datetime, timedelta
+    from zoneinfo import ZoneInfo
+
+    past = datetime.now(ZoneInfo("UTC")) - timedelta(hours=1)
+    monkeypatch.setattr(reminders, "_reminded_events", {"old@x": past})
+    bot = MagicMock()
+    bot.send_message = AsyncMock()
+    await reminders.send_pre_event_reminders(bot, _events_session([]), "-1", 30)
+    assert reminders._reminded_events == {}
+
+
+@pytest.mark.asyncio
+async def test_markdown_title_is_escaped_and_delivered(monkeypatch):
+    """A title with _ or * used to be rejected by Telegram (legacy Markdown),
+    so the reminder was never sent and retried every 5 minutes."""
+    monkeypatch.setattr(reminders, "_reminded_events", {})
+    bot = MagicMock()
+    bot.send_message = AsyncMock()
+    event = {"id": "e1", "summary": "Q3_review *draft*", "start": _soon()}
+
+    await reminders.send_pre_event_reminders(bot, _events_session([event]), "-1", 30)
+
+    kwargs = bot.send_message.await_args.kwargs
+    assert kwargs["parse_mode"] == "MarkdownV2"
+    assert "Q3\\_review \\*draft\\*" in kwargs["text"]
+    assert len(reminders._reminded_events) == 1
+
+
+@pytest.mark.asyncio
+async def test_pre_event_falls_back_to_plain_text(monkeypatch):
+    from telegram.error import BadRequest
+
+    monkeypatch.setattr(reminders, "_reminded_events", {})
+    bot = MagicMock()
+    bot.send_message = AsyncMock(side_effect=[BadRequest("can't parse entities"), None])
+    event = {"id": "e1", "summary": "Weird [title", "start": _soon()}
+
+    await reminders.send_pre_event_reminders(bot, _events_session([event]), "-1", 30)
+
+    assert bot.send_message.await_count == 2
+    assert "parse_mode" not in bot.send_message.await_args.kwargs
+    assert "Weird [title" in bot.send_message.await_args.kwargs["text"]
+    assert len(reminders._reminded_events) == 1
+
+
+@pytest.mark.asyncio
+async def test_untitled_event_does_not_crash(monkeypatch):
+    monkeypatch.setattr(reminders, "_reminded_events", {})
+    bot = MagicMock()
+    bot.send_message = AsyncMock()
+    await reminders.send_pre_event_reminders(
+        bot, _events_session([{"id": "e1", "start": _soon()}]), "-1", 30
+    )
+    assert "untitled" in bot.send_message.await_args.kwargs["text"]
+
+
+@pytest.mark.asyncio
+async def test_hung_mcp_call_times_out(monkeypatch):
+    import asyncio
+
+    monkeypatch.setattr(reminders, "MCP_CALL_TIMEOUT_SECONDS", 0.05)
+    monkeypatch.setattr(reminders, "_reminded_events", {})
+
+    async def hang(*_a, **_k):
+        await asyncio.sleep(10)
+
+    session = MagicMock()
+    session.call_tool = hang
+    bot = MagicMock()
+    bot.send_message = AsyncMock()
+    await asyncio.wait_for(reminders.send_pre_event_reminders(bot, session, "-1", 30), 2)
+    bot.send_message.assert_not_awaited()
+
+
 @pytest.mark.asyncio
 async def test_send_pre_event_reminders_swallows_mcp_error(monkeypatch):
-    monkeypatch.setattr(reminders, "_reminded_event_ids", set())
+    monkeypatch.setattr(reminders, "_reminded_events", {})
     bot = MagicMock()
     bot.send_message = AsyncMock()
     session = MagicMock()

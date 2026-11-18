@@ -23,6 +23,7 @@ from typing import TYPE_CHECKING, Any
 
 from ..allowlist import DENIED_MESSAGE, is_allowed, parse_str_csv, warn_if_empty
 from ..ratelimit import get_default_limiter
+from ..util import watch_task
 from .base import ChatPlatform, CommandHandler, DefaultHandler, IncomingMessage
 
 if TYPE_CHECKING:
@@ -76,7 +77,10 @@ class SlackPlatform(ChatPlatform):
         self._register_listeners(self._app)
         self._socket_handler = AsyncSocketModeHandler(self._app, self._app_token)
         # start_async() returns a coroutine that runs forever — run as a task
-        self._app_task = asyncio.create_task(self._socket_handler.start_async())  # type: ignore[no-untyped-call]
+        self._app_task = watch_task(
+            asyncio.create_task(self._socket_handler.start_async()),  # type: ignore[no-untyped-call]
+            "slack-socket-mode",
+        )
         logger.info("Slack platform started (socket mode)")
 
     async def stop(self) -> None:

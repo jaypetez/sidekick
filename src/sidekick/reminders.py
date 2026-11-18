@@ -9,9 +9,14 @@ Custom reminders can be added/removed/updated at runtime via chat
 and are persisted to ~/.config/sidekick/reminders.json.
 """
 
+import asyncio
+import contextlib
+import copy
 import json
 import logging
 import os
+import tempfile
+import threading
 import time
 import uuid
 from datetime import datetime, timedelta
@@ -26,6 +31,7 @@ from mcp import ClientSession
 from telegram import Bot
 
 from . import runtime_config
+from .telegram_format import escape_v2, send_markdown_v2, send_safe
 
 if TYPE_CHECKING:
     from .agent import SidekickAgent
@@ -139,31 +145,75 @@ def apply_builtin_settings(scheduler: AsyncIOScheduler) -> list[str]:
 # ------------------------------------------------------------------
 
 
+class RemindersFileError(RuntimeError):
+    """The reminders file exists but could not be read (permissions, I/O).
+
+    Raised instead of returning ``[]`` so a read-modify-write never
+    overwrites reminders it failed to load.
+    """
+
+
+# Serializes read-modify-write of reminders.json. Chat tool calls run on the
+# event loop while the web dashboard calls in from executor threads, so
+# without this two concurrent edits silently lose one of them.
+_file_lock = threading.RLock()
+
+
 def _read_reminders_file() -> list[dict[str, Any]]:
-    """Read reminders from JSON file. Returns empty list if not found."""
+    """Read reminders from the JSON file. Returns ``[]`` if it doesn't exist.
+
+    A file that exists but doesn't parse is moved aside to
+    ``reminders.json.corrupt-<ts>`` (and logged) rather than treated as
+    empty-and-overwritable, so a crash mid-write can never silently erase
+    every saved reminder. Unreadable files raise :class:`RemindersFileError`.
+    """
     path = Path(REMINDERS_FILE)
-    if not path.exists():
-        return []
-    try:
-        data: Any = json.loads(path.read_text())
-        return data if isinstance(data, list) else []
-    except (json.JSONDecodeError, OSError):
-        logger.exception("Failed to read reminders file")
+    with _file_lock:
+        try:
+            raw = path.read_text(encoding="utf-8")
+        except FileNotFoundError:
+            return []
+        except OSError as exc:
+            raise RemindersFileError(f"cannot read {path}: {exc}") from exc
+        try:
+            data: Any = json.loads(raw)
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            data = None
+        if isinstance(data, list):
+            return data
+        quarantine = path.with_name(f"{path.name}.corrupt-{int(time.time())}")
+        try:
+            path.replace(quarantine)
+        except OSError:
+            logger.exception("Could not move aside corrupt reminders file %s", path)
+            raise RemindersFileError(f"{path} is corrupt and could not be moved aside") from None
+        logger.error("Reminders file %s was corrupt; moved it to %s", path, quarantine)
         return []
 
 
 def _write_reminders_file(reminders: list[dict[str, Any]]) -> None:
-    """Write reminders list to JSON file with restrictive permissions."""
+    """Atomically write the reminders list, owner-only (0600) from creation.
+
+    Writes a temp file in the same directory and ``os.replace``s it over the
+    real one, so readers see either the old or the new list — never a
+    truncated file.
+    """
     path = Path(REMINDERS_FILE)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(reminders, indent=2))
-    # Restrict to owner read/write only — file may contain chat ids and
-    # other sensitive routing data. chmod is a no-op on Windows for the
-    # group/other bits but is harmless.
-    try:
-        os.chmod(path, 0o600)
-    except OSError:
-        logger.exception("Failed to chmod reminders file %s", path)
+    with _file_lock:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        fd, tmp = tempfile.mkstemp(prefix=".reminders-", suffix=".json", dir=path.parent)
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as fh:
+                fh.write(json.dumps(reminders, indent=2))
+            try:
+                os.chmod(tmp, 0o600)
+            except OSError:
+                logger.debug("Could not chmod %s — non-POSIX filesystem?", tmp)
+            os.replace(tmp, path)
+        except BaseException:
+            with contextlib.suppress(OSError):
+                os.unlink(tmp)
+            raise
 
 
 _REMINDER_REQUIRED_KEYS = {"id", "message", "schedule"}
@@ -195,17 +245,10 @@ def _validate_reminder(payload: Any) -> dict[str, Any] | None:
     if not isinstance(schedule, dict) or "type" not in schedule:
         logger.warning("Reminder %s has invalid schedule", payload["id"])
         return None
-    stype = schedule["type"]
-    if stype == "cron":
-        if not isinstance(schedule.get("hour"), int) or not isinstance(schedule.get("minute"), int):
-            logger.warning("Reminder %s cron schedule missing hour/minute", payload["id"])
-            return None
-    elif stype == "interval":
-        if not isinstance(schedule.get("interval_minutes"), int):
-            logger.warning("Reminder %s interval schedule missing interval_minutes", payload["id"])
-            return None
-    else:
-        logger.warning("Reminder %s has unknown schedule type %r", payload["id"], stype)
+    try:
+        _build_trigger(schedule, "UTC")
+    except (ValueError, TypeError, KeyError) as exc:
+        logger.warning("Reminder %s has invalid schedule: %s", payload["id"], exc)
         return None
     unknown = payload.keys() - _REMINDER_ALLOWED_KEYS
     if unknown:
@@ -215,7 +258,11 @@ def _validate_reminder(payload: Any) -> dict[str, Any] | None:
 
 def load_custom_reminders(scheduler: AsyncIOScheduler, agent: "SidekickAgent") -> None:
     """Load saved custom reminders and register them with the scheduler."""
-    reminders = _read_reminders_file()
+    try:
+        reminders = _read_reminders_file()
+    except RemindersFileError:
+        logger.exception("Custom reminders not loaded")
+        return
     tz = runtime_config.timezone_name()
     for raw in reminders:
         r = _validate_reminder(raw)
@@ -230,30 +277,44 @@ def load_custom_reminders(scheduler: AsyncIOScheduler, agent: "SidekickAgent") -
             logger.exception("Failed to restore reminder %s", r.get("id"))
 
 
+def _build_trigger(schedule: dict[str, Any], tz: str) -> CronTrigger | IntervalTrigger:
+    """Build (and thereby validate) the trigger for a schedule dict.
+
+    Raises ``ValueError`` for anything out of range — hour 0-23, minute
+    0-59, a day_of_week APScheduler can't parse, interval < 1 minute — so
+    callers can validate *before* touching the file or the scheduler.
+    """
+    stype = schedule.get("type")
+    if stype == "cron":
+        hour, minute = schedule.get("hour"), schedule.get("minute")
+        if not isinstance(hour, int) or isinstance(hour, bool) or not 0 <= hour <= 23:
+            raise ValueError(f"hour must be an integer 0-23, got {hour!r}")
+        if not isinstance(minute, int) or isinstance(minute, bool) or not 0 <= minute <= 59:
+            raise ValueError(f"minute must be an integer 0-59, got {minute!r}")
+        return CronTrigger(
+            hour=hour,
+            minute=minute,
+            day_of_week=schedule.get("day_of_week"),
+            timezone=tz,
+        )
+    if stype == "interval":
+        minutes = schedule.get("interval_minutes")
+        if not isinstance(minutes, int) or isinstance(minutes, bool) or minutes < 1:
+            raise ValueError(f"interval_minutes must be a positive integer, got {minutes!r}")
+        return IntervalTrigger(minutes=minutes)
+    raise ValueError(f"Unknown schedule type: {stype!r}")
+
+
 def _register_job(
     scheduler: AsyncIOScheduler,
     agent: "SidekickAgent",
     reminder: dict[str, Any],
     tz: str,
 ) -> None:
-    """Register a single custom reminder as an APScheduler job."""
-    schedule = reminder["schedule"]
-    trigger: CronTrigger | IntervalTrigger
-    if schedule["type"] == "cron":
-        trigger = CronTrigger(
-            hour=schedule["hour"],
-            minute=schedule["minute"],
-            day_of_week=schedule.get("day_of_week"),
-            timezone=tz,
-        )
-    elif schedule["type"] == "interval":
-        trigger = IntervalTrigger(minutes=schedule["interval_minutes"])
-    else:
-        raise ValueError(f"Unknown schedule type: {schedule['type']}")
-
+    """Register (or replace) a single custom reminder as an APScheduler job."""
     scheduler.add_job(
         send_custom_reminder,
-        trigger,
+        _build_trigger(reminder["schedule"], tz),
         args=[agent, reminder["message"]],
         id=reminder["id"],
         name=reminder.get("message", "Custom reminder"),
@@ -291,7 +352,10 @@ async def send_custom_reminder(agent: "SidekickAgent", message: str) -> None:
     run_chat_id = f"{_REMINDER_CHAT_ID}:{uuid.uuid4().hex}"
     try:
         response = await agent.process_message(run_chat_id, message)
-        await bot.send_message(chat_id=chat_id, text=response, parse_mode="Markdown")
+        # Same escaping as normal chat replies: legacy "Markdown" rejected
+        # many free-form LLM replies, dropping the answer for the bare
+        # fallback text.
+        await send_safe(bot, chat_id, response)
     except Exception:
         logger.exception("Agent failed to process reminder, sending raw message")
         try:
@@ -312,8 +376,14 @@ def add_reminder(
     day_of_week: str | None = None,
     interval_minutes: int | None = None,
 ) -> dict[str, Any]:
-    """Add a new custom reminder. Returns the reminder dict."""
-    reminder_id = f"reminder_{int(time.time())}"
+    """Add a new custom reminder. Returns the reminder dict.
+
+    Raises ``ValueError`` (before anything is saved) for an invalid schedule.
+    """
+    # uuid, not int(time.time()): two reminders created in the same second
+    # ("remind me at 8 and at 5") used to share an id, so the second job
+    # replaced the first in the scheduler.
+    reminder_id = f"reminder_{uuid.uuid4().hex[:12]}"
     tz = runtime_config.timezone_name()
 
     schedule: dict[str, Any]
@@ -332,14 +402,56 @@ def add_reminder(
         "enabled": True,
     }
 
-    _register_job(scheduler, agent, reminder, tz)
-
-    reminders = _read_reminders_file()
-    reminders.append(reminder)
-    _write_reminders_file(reminders)
+    with _file_lock:
+        _register_job(scheduler, agent, reminder, tz)  # validates first
+        try:
+            reminders = _read_reminders_file()
+            reminders.append(reminder)
+            _write_reminders_file(reminders)
+        except Exception:
+            # Don't leave a scheduled job that won't survive a restart.
+            with contextlib.suppress(Exception):
+                scheduler.remove_job(reminder_id)
+            raise
 
     logger.info("Added custom reminder: %s", reminder_id)
     return reminder
+
+
+def _update_builtin(
+    scheduler: AsyncIOScheduler,
+    reminder_id: str,
+    hour: int | None,
+    minute: int | None,
+    enabled: bool | None,
+    tz: str,
+) -> dict[str, Any]:
+    job = scheduler.get_job(reminder_id)
+    if not job:
+        return {"error": f"Built-in reminder '{reminder_id}' is not active"}
+
+    new_trigger: CronTrigger | None = None
+    if hour is not None or minute is not None:
+        if not isinstance(job.trigger, CronTrigger):
+            raise ValueError(
+                f"'{reminder_id}' runs on an interval, not at a time of day; "
+                "change PRE_EVENT_REMINDER_MINUTES in settings instead"
+            )
+        fields = {f.name: f for f in job.trigger.fields}
+        new_hour = hour if hour is not None else int(str(fields["hour"]))
+        new_minute = minute if minute is not None else int(str(fields["minute"]))
+        trigger = _build_trigger({"type": "cron", "hour": new_hour, "minute": new_minute}, tz)
+        assert isinstance(trigger, CronTrigger)
+        new_trigger = trigger
+
+    if enabled is False:
+        scheduler.pause_job(reminder_id)
+        return {"status": "paused", "id": reminder_id}
+    if new_trigger is not None:
+        scheduler.reschedule_job(reminder_id, trigger=new_trigger)
+    if enabled is True:
+        scheduler.resume_job(reminder_id)
+    return {"status": "updated", "id": reminder_id}
 
 
 def update_reminder(
@@ -352,93 +464,79 @@ def update_reminder(
     day_of_week: str | None = None,
     enabled: bool | None = None,
 ) -> dict[str, Any]:
-    """Update an existing reminder (built-in or custom). Returns updated info."""
+    """Update an existing reminder (built-in or custom).
+
+    Returns ``{"status": ...}`` or ``{"error": ...}`` when the id is unknown.
+    Raises ``ValueError`` for an invalid new schedule — validated *before*
+    the file or the live job is touched, so a bad edit can no longer delete
+    the reminder.
+    """
     tz = runtime_config.timezone_name()
 
-    # Handle built-in reminders
     if reminder_id in BUILTIN_IDS:
-        job = scheduler.get_job(reminder_id)
-        if not job:
-            return {"error": f"Built-in reminder '{reminder_id}' is not active"}
-        if enabled is False:
-            scheduler.pause_job(reminder_id)
-            return {"status": "paused", "id": reminder_id}
-        if enabled is True:
-            scheduler.resume_job(reminder_id)
-        if hour is not None or minute is not None:
-            old_trigger = job.trigger
-            new_hour = hour if hour is not None else old_trigger.fields[5].expressions[0].first  # noqa: E501
-            new_minute = (
-                minute if minute is not None else old_trigger.fields[6].expressions[0].first
-            )  # noqa: E501
-            scheduler.reschedule_job(
-                reminder_id,
-                trigger=CronTrigger(hour=new_hour, minute=new_minute, timezone=tz),
-            )
-        return {"status": "updated", "id": reminder_id}
+        return _update_builtin(scheduler, reminder_id, hour, minute, enabled, tz)
 
-    # Handle custom reminders
-    reminders = _read_reminders_file()
-    target = None
-    for r in reminders:
-        if r["id"] == reminder_id:
-            target = r
-            break
-    if not target:
-        return {"error": f"Reminder '{reminder_id}' not found"}
+    with _file_lock:
+        reminders = _read_reminders_file()
+        index = next(
+            (
+                i
+                for i, r in enumerate(reminders)
+                if isinstance(r, dict) and r.get("id") == reminder_id
+            ),
+            None,
+        )
+        if index is None:
+            return {"error": f"Reminder '{reminder_id}' not found"}
 
-    if message is not None:
-        target["message"] = message
-    if hour is not None:
-        target["schedule"]["hour"] = hour
-    if minute is not None:
-        target["schedule"]["minute"] = minute
-    if day_of_week is not None:
-        target["schedule"]["day_of_week"] = day_of_week
-    if enabled is not None:
-        target["enabled"] = enabled
+        updated = copy.deepcopy(reminders[index])
+        if message is not None:
+            updated["message"] = message
+        schedule = updated.setdefault("schedule", {})
+        if hour is not None:
+            schedule["hour"] = hour
+        if minute is not None:
+            schedule["minute"] = minute
+        if day_of_week is not None:
+            schedule["day_of_week"] = day_of_week
+        if enabled is not None:
+            updated["enabled"] = enabled
 
-    _write_reminders_file(reminders)
+        _build_trigger(schedule, tz)  # raises ValueError before any change
 
-    # Re-register or remove from scheduler
-    try:
-        scheduler.remove_job(reminder_id)
-    except Exception:
-        pass
-    if target.get("enabled", True):
-        _register_job(scheduler, agent, target, tz)
+        reminders[index] = updated
+        _write_reminders_file(reminders)
+
+        if updated.get("enabled", True):
+            _register_job(scheduler, agent, updated, tz)  # replace_existing
+        elif scheduler.get_job(reminder_id) is not None:
+            scheduler.remove_job(reminder_id)
 
     logger.info("Updated custom reminder: %s", reminder_id)
     return {"status": "updated", "id": reminder_id}
 
 
 def remove_reminder(scheduler: AsyncIOScheduler, reminder_id: str) -> dict[str, Any]:
-    """Remove a custom reminder. Built-in reminders cannot be removed (disable instead)."""
+    """Remove a custom reminder by exact id.
+
+    Built-in reminders cannot be removed (disable instead). There is
+    deliberately no fuzzy fallback: matching "a" against message text used
+    to delete an arbitrary reminder.
+    """
     if reminder_id in BUILTIN_IDS:
         return {
             "error": f"Cannot remove built-in reminder '{reminder_id}'. "
             "Use update_reminder with enabled=false to disable it."
         }
 
-    reminders = _read_reminders_file()
-    found = False
-    reminders = [r for r in reminders if r["id"] != reminder_id or not (found := True)]  # noqa: F841
-    if not found:
-        # Try matching by message substring
-        for r in _read_reminders_file():
-            if reminder_id.lower() in r.get("message", "").lower():
-                reminder_id = r["id"]
-                reminders = [x for x in _read_reminders_file() if x["id"] != reminder_id]
-                found = True
-                break
-    if not found:
-        return {"error": f"Reminder '{reminder_id}' not found"}
-
-    _write_reminders_file(reminders)
-    try:
-        scheduler.remove_job(reminder_id)
-    except Exception:
-        pass
+    with _file_lock:
+        reminders = _read_reminders_file()
+        kept = [r for r in reminders if not (isinstance(r, dict) and r.get("id") == reminder_id)]
+        if len(kept) == len(reminders):
+            return {"error": f"Reminder '{reminder_id}' not found"}
+        _write_reminders_file(kept)
+        if scheduler.get_job(reminder_id) is not None:
+            scheduler.remove_job(reminder_id)
 
     logger.info("Removed custom reminder: %s", reminder_id)
     return {"status": "removed", "id": reminder_id}
@@ -464,10 +562,15 @@ def get_all_reminders(scheduler: AsyncIOScheduler) -> list[dict[str, Any]]:
         result.append(info)
 
     # Also include disabled custom reminders from the file
-    file_reminders = _read_reminders_file()
+    try:
+        file_reminders = _read_reminders_file()
+    except RemindersFileError:
+        logger.exception("Could not list disabled reminders")
+        file_reminders = []
     active_ids = {j.id for j in jobs}
-    for r in file_reminders:
-        if r["id"] not in active_ids:
+    for raw in file_reminders:
+        r = _validate_reminder(raw)
+        if r is not None and r["id"] not in active_ids:
             result.append(
                 {
                     "id": r["id"],
@@ -486,15 +589,27 @@ def get_all_reminders(scheduler: AsyncIOScheduler) -> list[dict[str, Any]]:
 # ------------------------------------------------------------------
 
 
+# A hung Chronary call must not wedge the job: APScheduler won't start the
+# next 5-minute check while the previous run is still in flight.
+MCP_CALL_TIMEOUT_SECONDS = 30
+
+
+async def _list_events_today(
+    mcp_session: ClientSession, today: str, **extra: Any
+) -> list[dict[str, Any]]:
+    result = await asyncio.wait_for(
+        mcp_session.call_tool("list_events", {"start_date": today, "end_date": today, **extra}),
+        MCP_CALL_TIMEOUT_SECONDS,
+    )
+    return _events_from_tool_result(result.content)
+
+
 async def send_morning_summary(bot: Bot, mcp_session: ClientSession, chat_id: str) -> None:
     """Fetch today's events and send a morning briefing."""
     tz = runtime_config.timezone_name()
     today = datetime.now(ZoneInfo(tz)).date().isoformat()
     try:
-        result = await mcp_session.call_tool(
-            "list_events", {"start_date": today, "end_date": today}
-        )
-        events = _events_from_tool_result(result.content)
+        events = await _list_events_today(mcp_session, today)
     except Exception:
         logger.exception("Failed to fetch events for morning summary")
         return
@@ -505,7 +620,7 @@ async def send_morning_summary(bot: Bot, mcp_session: ClientSession, chat_id: st
         lines = [f"Good morning! Here's what's on the calendar today ({today}):\n"]
         for e in events:
             start = _format_time(e.get("start", ""))
-            lines.append(f"• {e['summary']} — {start}")
+            lines.append(f"• {e.get('summary') or '(untitled)'} — {start}")
         text = "\n".join(lines)
 
     try:
@@ -514,8 +629,12 @@ async def send_morning_summary(bot: Bot, mcp_session: ClientSession, chat_id: st
         logger.exception("Failed to send morning summary to chat %s", chat_id)
 
 
-# In-memory set to avoid sending duplicate pre-event reminders
-_reminded_event_ids: set[str] = set()
+# Pre-event reminders already sent: "<event id>@<start>" → start time. Keyed
+# on the start too, so an event moved to a new time gets a fresh reminder.
+# Entries are dropped only once the event has started — never because a
+# fetch failed or returned a truncated list (which used to empty the set and
+# re-send every reminder still inside the window).
+_reminded_events: dict[str, datetime] = {}
 
 
 async def send_pre_event_reminders(
@@ -526,25 +645,20 @@ async def send_pre_event_reminders(
     now = datetime.now(tz=ZoneInfo(tz_name))
     window_end = now + timedelta(minutes=minutes_before + 5)
 
-    today = now.date().isoformat()
+    for key in [k for k, start in _reminded_events.items() if start < now]:
+        del _reminded_events[key]
+
     try:
-        result = await mcp_session.call_tool(
-            "list_events",
-            {"start_date": today, "end_date": today, "max_results": 50},
-        )
-        events = _events_from_tool_result(result.content)
+        events = await _list_events_today(mcp_session, now.date().isoformat(), max_results=50)
     except Exception:
         logger.exception("Failed to fetch events for pre-event check")
         return
 
     for event in events:
         event_id = event.get("id")
-        if not event_id or event_id in _reminded_event_ids:
-            continue
-
         start_str = event.get("start", "")
-        if not start_str or "T" not in start_str:
-            continue  # skip all-day events
+        if not event_id or not start_str or "T" not in start_str:
+            continue  # no id, or an all-day event
 
         try:
             start_dt = datetime.fromisoformat(start_str)
@@ -553,27 +667,36 @@ async def send_pre_event_reminders(
         except ValueError:
             continue
 
-        if now <= start_dt <= window_end:
-            mins_away = int((start_dt - now).total_seconds() / 60)
-            text = f"Reminder: *{event['summary']}* starts in {mins_away} minutes!"
-            try:
-                await bot.send_message(chat_id=int(chat_id), text=text, parse_mode="Markdown")
-                _reminded_event_ids.add(event_id)
-                logger.info("Sent pre-event reminder for event %s", event_id)
-            except Exception:
-                logger.exception("Failed to send pre-event reminder")
+        key = f"{event_id}@{start_dt.isoformat()}"
+        if key in _reminded_events or not now <= start_dt <= window_end:
+            continue
 
-    # Prune event IDs for events that have already passed to keep the set small
-    _reminded_event_ids.difference_update(
-        eid for eid in list(_reminded_event_ids) if eid not in {e.get("id") for e in events}
-    )
+        mins_away = int((start_dt - now).total_seconds() / 60)
+        title = str(event.get("summary") or "(untitled)")
+        try:
+            # Escape the title: a "_" or "*" in it used to make Telegram
+            # reject the message, so the reminder was never delivered and
+            # was retried (and failed) every 5 minutes.
+            await send_markdown_v2(
+                bot,
+                int(chat_id),
+                f"Reminder: *{escape_v2(title)}* starts in {mins_away} minutes\\!",
+                plain_text=f"Reminder: {title} starts in {mins_away} minutes!",
+            )
+        except Exception:
+            logger.exception("Failed to send pre-event reminder for event %s", event_id)
+            continue
+        _reminded_events[key] = start_dt
+        logger.info("Sent pre-event reminder for event %s", event_id)
 
 
 def _events_from_tool_result(content: list[Any]) -> list[dict[str, Any]]:
     """Pull the JSON-encoded event list out of an MCP tool-call result.
 
-    MCP content blocks come in several shapes (TextContent, ImageContent, etc.);
-    list_events always returns TextContent, but mypy can't narrow without the check.
+    Raises ``ValueError`` when the server reported an error (it returns
+    ``{"error": ...}`` as ordinary text rather than failing the call) or
+    sent anything other than a list — callers must not mistake a failed
+    fetch for "no events today".
     """
     if not content:
         return []
@@ -582,7 +705,11 @@ def _events_from_tool_result(content: list[Any]) -> list[dict[str, Any]]:
     if not text:
         return []
     parsed: Any = json.loads(text)
-    return parsed if isinstance(parsed, list) else []
+    if isinstance(parsed, list):
+        return parsed
+    if isinstance(parsed, dict) and "error" in parsed:
+        raise ValueError(f"list_events failed: {parsed['error']}")
+    raise ValueError(f"list_events returned {type(parsed).__name__}, expected a list")
 
 
 def _format_time(iso_str: str) -> str:
