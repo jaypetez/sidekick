@@ -144,7 +144,7 @@ Tests use `unittest.mock` — no live API calls. Notable conventions:
 - SQLite tests inject a `:memory:` connection via the `SQLiteTaskStore(conn=...)` constructor
 - Ollama tests use a fake client and verify the format-translation helpers directly — no live ollama server
 
-`src/sidekick` is fully annotated and `mypy --strict` clean — new code must conform. Coverage floor is 80% (enforced via `--cov-fail-under` in pyproject); the current suite is ~161 tests at ~82%.
+`src/sidekick` is fully annotated and `mypy --strict` clean — new code must conform. Coverage floor is 80% (enforced via `--cov-fail-under` in pyproject); the suite currently collects ~239 tests.
 
 `pytest-asyncio` runs in strict mode (`asyncio_mode = "strict"` in pyproject.toml) — every async test must carry an explicit `@pytest.mark.asyncio` decorator.
 
@@ -163,3 +163,15 @@ Five required status checks gate every PR to `main`:
 Run the full set locally before pushing — they all match the commands above.
 
 `.pre-commit-config.yaml` runs ruff lint + format on every commit. Activate with `pre-commit install` after `pip install -e ".[dev]"`.
+
+## Contribution conventions
+
+Full rules in `.github/CONTRIBUTING.md`; the load-bearing ones for code changes:
+
+- **Never push directly to `main`** — it's protected and requires PR + passing CI. Branch from `main` with kebab-case names prefixed `feat/`, `fix/`, `docs/`, or `chore/`.
+- **Linear history is enforced.** Rebase your branch on `main` rather than merging `main` in. Merge commits are disabled; squash-and-merge is the default.
+- Commit subjects: imperative mood, under ~72 chars ("Add X", not "Added X").
+
+## Examples
+
+`examples/01-local-ollama-docker/` is the user-facing "try it in 5 minutes" path — Docker compose with Ollama + the web chat UI, no Telegram or Anthropic key required. Treat its README as the canonical onboarding flow; keep it in sync with any change that affects local-LLM or web-dashboard setup.
