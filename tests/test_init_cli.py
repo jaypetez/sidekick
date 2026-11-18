@@ -1,6 +1,8 @@
 """Tests for sidekick-init bootstrap CLI."""
 
 import json
+import os
+import stat
 import sys
 from types import SimpleNamespace
 from unittest.mock import MagicMock
@@ -8,6 +10,22 @@ from unittest.mock import MagicMock
 import pytest
 
 from sidekick import init_cli
+
+
+@pytest.fixture(autouse=True)
+def _no_dotenv(monkeypatch):
+    """Keep a developer's real ./.env out of these tests."""
+    monkeypatch.setattr(init_cli, "load_dotenv", lambda *a, **k: False)
+
+
+def _fake_chronary(monkeypatch):
+    fake_client = MagicMock()
+    fake_client.agents.create.return_value = SimpleNamespace(id="agent_x")
+    fake_client.agents.calendars.create.return_value = SimpleNamespace(id="cal_x")
+    monkeypatch.setitem(
+        sys.modules, "chronary", SimpleNamespace(Chronary=lambda api_key: fake_client)
+    )
+    return fake_client
 
 
 def test_main_exits_without_api_key(monkeypatch, capsys):
@@ -101,3 +119,35 @@ def test_main_merges_with_existing_config(monkeypatch, tmp_path):
     # Existing keys preserved.
     assert saved["personality"] == "snarky"
     assert saved["chronary_agent_id"] == "agent_new"
+
+
+def test_main_reads_api_key_from_dotenv(monkeypatch, tmp_path):
+    """A bare-metal run picks CHRONARY_API_KEY up from ./.env, like the bot does."""
+    monkeypatch.delenv("CHRONARY_API_KEY", raising=False)
+    monkeypatch.setenv("SIDEKICK_CONFIG_DIR", str(tmp_path))
+    calls: list[bool] = []
+
+    def fake_load_dotenv(*args, **kwargs):
+        calls.append(True)
+        os.environ["CHRONARY_API_KEY"] = "chr_sk_from_dotenv"
+        return True
+
+    monkeypatch.setattr(init_cli, "load_dotenv", fake_load_dotenv)
+    _fake_chronary(monkeypatch)
+
+    init_cli.main()
+
+    assert calls == [True]
+    assert (tmp_path / "config.json").exists()
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX permission bits")
+def test_main_writes_config_owner_only(monkeypatch, tmp_path):
+    monkeypatch.setenv("CHRONARY_API_KEY", "chr_sk_test")
+    monkeypatch.setenv("SIDEKICK_CONFIG_DIR", str(tmp_path))
+    _fake_chronary(monkeypatch)
+
+    init_cli.main()
+
+    mode = stat.S_IMODE((tmp_path / "config.json").stat().st_mode)
+    assert mode == 0o600

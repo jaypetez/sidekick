@@ -5,8 +5,10 @@ Creates a Chronary agent + default calendar, writes the IDs to
 into .env (CHRONARY_AGENT_ID, CHRONARY_CALENDAR_ID).
 
 Usage:
-    export CHRONARY_API_KEY=chr_sk_...
-    sidekick-init
+    sidekick-init          # reads CHRONARY_API_KEY from the env or ./.env
+
+In Docker the image's entrypoint is ``sidekick``, so override it:
+    docker compose run --rm --entrypoint sidekick-init sidekick
 """
 
 import json
@@ -14,6 +16,8 @@ import os
 import sys
 from pathlib import Path
 from typing import Any
+
+from dotenv import load_dotenv
 
 from . import paths
 
@@ -26,6 +30,9 @@ def _id_of(obj: Any) -> Any:
 
 
 def main() -> None:
+    # Same as the bot and sidekick-webhook: a bare-metal run picks up ./.env.
+    # Already-exported variables win (load_dotenv doesn't override them).
+    load_dotenv()
     api_key = os.environ.get("CHRONARY_API_KEY")
     if not api_key:
         print(
@@ -75,6 +82,12 @@ def main() -> None:
     existing["chronary_agent_id"] = agent_id
     existing["chronary_calendar_id"] = calendar_id
     config_path.write_text(json.dumps(existing, indent=2))
+    # Match the agent's own writes (agent._write_config): owner-only.
+    # chmod's group/other bits are a no-op on Windows.
+    try:
+        os.chmod(config_path, 0o600)
+    except OSError as exc:
+        print(f"warning: could not chmod {config_path}: {exc}", file=sys.stderr)
 
     print()
     print(f"Wrote {config_path}")
