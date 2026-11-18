@@ -16,7 +16,7 @@ from datetime import UTC, datetime
 from typing import Any
 from urllib.parse import urlsplit, urlunsplit
 
-from .. import __version__, config_catalog, runtime_config
+from .. import __version__, config_catalog, paths, runtime_config
 from ..util import is_loopback_host, run_sync, slack_configured, web_auth_token, web_bind
 from ..webhooks import load_webhook_secret
 
@@ -122,7 +122,7 @@ def _paths() -> dict[str, str]:
     from ..storage.sqlite_tasks import default_db_path
 
     return {
-        "config_dir": os.path.expanduser(os.getenv("SIDEKICK_CONFIG_DIR", "~/.config/sidekick")),
+        "config_dir": str(paths.config_dir()),
         "runtime_config": runtime_config.current_path(),
         "database": default_db_path(),
         "reminders_file": REMINDERS_FILE,

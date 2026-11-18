@@ -22,7 +22,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from mcp import ClientSession
 from telegram import Bot
 
-from . import runtime_config
+from . import paths, runtime_config
 from .llm import LLMClient, build_llm_client
 from .logging_setup import safe_repr
 from .reminders import (
@@ -52,10 +52,7 @@ DESTRUCTIVE_TOOLS = frozenset(
     }
 )
 
-CONFIG_FILE = os.getenv(
-    "CONFIG_FILE",
-    os.path.join(os.path.expanduser("~/.config/sidekick"), "config.json"),
-)
+CONFIG_FILE = paths.personality_file()
 
 PERSONALITY_PRESETS = {
     "default": "",

@@ -6,7 +6,7 @@ Built-in jobs:
   2. pre_event_check  — checks every 5 min for events about to start
 
 Custom reminders can be added/removed/updated at runtime via chat
-and are persisted to ~/.config/sidekick/reminders.json.
+and are persisted to reminders.json in the config dir (see paths.py).
 """
 
 import asyncio
@@ -30,7 +30,7 @@ from apscheduler.triggers.interval import IntervalTrigger
 from mcp import ClientSession
 from telegram import Bot
 
-from . import runtime_config
+from . import paths, runtime_config
 from .telegram_format import escape_v2, send_markdown_v2, send_safe
 
 if TYPE_CHECKING:
@@ -38,10 +38,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-REMINDERS_FILE = os.getenv(
-    "REMINDERS_FILE",
-    os.path.expanduser("~/.config/sidekick/reminders.json"),
-)
+REMINDERS_FILE = paths.reminders_file()
 
 BUILTIN_IDS = {"morning_summary", "pre_event_check"}
 

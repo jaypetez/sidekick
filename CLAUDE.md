@@ -120,6 +120,7 @@ The set `LOCAL_REMINDER_TOOLS` in `agent.py` determines routing.
 
 ### Runtime settings, services, `/api`, and the CLI
 
+- **State file locations** all come from `paths.py` (`config_dir()`, `db_path()`, `reminders_file()`, `personality_file()`): the per-file env var wins, else `$SIDEKICK_CONFIG_DIR/<name>`; values are `~`-expanded and blank means unset. If the new location is missing but `~/.config/sidekick/<name>` exists (older versions ignored `SIDEKICK_CONFIG_DIR` for these files), the legacy file is used with a warning. Never hard-code `~/.config/sidekick` elsewhere.
 - `runtime_config.py` layers editable overrides (`EDITABLE_KEYS`) from `runtime.json` (in `SIDEKICK_CONFIG_DIR`) over `os.environ`. Read settings through `runtime_config.get()` / `timezone_name()` — **not** `os.getenv` — or settings-page edits silently won't apply. `validate()` gates every write; `SECRET_KEYS` are redacted in `as_dict(redacted=True)`.
 - `services/` holds the framework-free business logic shared by the HTML handlers, `/api`, and the CLI. `services/settings.update()` validates a whole batch before writing, rebuilds the LLM client for LLM keys, re-applies built-in reminder jobs via `reminders.apply_builtin_settings()`, and reports `restart_required` (currently `TIMEZONE`).
 - `web/api/` is a sub-app mounted at `/api/` with a `{data, error}` envelope; the parent app's session/CSRF/auth middlewares still apply. A request with a valid `Authorization: Bearer` token skips CSRF (not an ambient credential); browser JS (`static/js/api.js`) sends `X-CSRF-Token` from the page's `csrf-token` meta tag.
@@ -142,12 +143,13 @@ Per-chat history in `agent.py` (`conversation_history` dict). Keys are `int` for
 | `CHRONARY_API_KEY` | — | Yes |
 | `CHRONARY_AGENT_ID` | — | Yes (set by `sidekick-init`) |
 | `CHRONARY_CALENDAR_ID` | — | Yes (set by `sidekick-init`) |
-| `SIDEKICK_DB_PATH` | `~/.config/sidekick/sidekick.db` | No |
+| `SIDEKICK_DB_PATH` | `$SIDEKICK_CONFIG_DIR/sidekick.db` | No |
 | `SLACK_BOT_TOKEN`, `SLACK_APP_TOKEN` | — | Only if Slack is enabled |
 | `REMINDER_CHAT_ID` | — | No (disables reminders if unset) |
 | `MORNING_REMINDER_TIME` | `07:30` | No (HH:MM 24-hour) |
 | `PRE_EVENT_REMINDER_MINUTES` | `30` | No (lead time for pre-event alerts) |
-| `SIDEKICK_CONFIG_DIR` | `~/.config/sidekick` | No (relocates reminders.json, DB, and personality state) |
+| `SIDEKICK_CONFIG_DIR` | `~/.config/sidekick` | No (relocates every state file: DB, reminders.json, config.json, runtime.json, secrets) |
+| `REMINDERS_FILE`, `CONFIG_FILE` | `$SIDEKICK_CONFIG_DIR/{reminders,config}.json` | No (per-file overrides) |
 | `SIDEKICK_WEB_ENABLED` | `true` | No (set to `false` to skip the dashboard) |
 | `SIDEKICK_WEB_HOST` | `127.0.0.1` | No (bind interface for the dashboard) |
 | `SIDEKICK_WEB_PORT` | `8080` | No (bind port for the dashboard) |

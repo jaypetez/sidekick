@@ -29,6 +29,8 @@ from threading import RLock
 from typing import Any, Final
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
+from . import paths
+
 logger = logging.getLogger(__name__)
 
 EDITABLE_KEYS: Final[frozenset[str]] = frozenset(
@@ -79,11 +81,10 @@ _HHMM_RE = re.compile(r"^([01]?\d|2[0-3]):([0-5]\d)$")
 
 
 def _default_path() -> str:
-    explicit = os.getenv("SIDEKICK_RUNTIME_CONFIG")
+    explicit = os.getenv("SIDEKICK_RUNTIME_CONFIG", "").strip()
     if explicit:
-        return explicit
-    config_dir = os.path.expanduser(os.getenv("SIDEKICK_CONFIG_DIR", "~/.config/sidekick"))
-    return os.path.join(config_dir, "runtime.json")
+        return os.path.expanduser(explicit)
+    return str(paths.config_dir() / "runtime.json")
 
 
 _lock = RLock()
