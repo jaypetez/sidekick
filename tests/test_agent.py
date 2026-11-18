@@ -257,3 +257,11 @@ def test_personality_loaded_on_init(tmp_path, monkeypatch):
     monkeypatch.setattr("sidekick.agent.CONFIG_FILE", str(config_path))
     agent = _make_agent()
     assert agent.personality == "Be extremely dramatic."
+
+
+def test_system_prompt_states_running_version():
+    """So "what version are you on?" gets a real answer in chat."""
+    from sidekick import __version__
+
+    agent = _make_agent()
+    assert f"Sidekick version {__version__}" in agent.system_prompt()

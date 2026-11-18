@@ -96,6 +96,16 @@ async def test_handle_get_id_reports_chat_id():
 
 
 @pytest.mark.asyncio
+async def test_handle_version_reports_running_version():
+    from sidekick import __version__
+
+    update = _make_update()
+    context = _make_context(MagicMock())
+    await bot_module.handle_version(update, context)
+    update.message.reply_text.assert_awaited_once_with(f"Sidekick {__version__}")
+
+
+@pytest.mark.asyncio
 async def test_handle_personality_no_args_shows_current_and_presets():
     update = _make_update()
     agent = MagicMock()

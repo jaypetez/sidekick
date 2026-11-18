@@ -1,6 +1,14 @@
 services:
   sidekick:
-    build: .
+    build:
+      context: .
+      args:
+        # Version baked into the image (shown by /version, the dashboard and
+        # the System page). Unset = 0.0.0. To stamp a local build:
+        #   export SIDEKICK_VERSION=$(git describe --tags --match 'v*' | sed -E 's/^v//; s/-([0-9]+)-g/.post\1+g/')
+        #   docker compose build
+        # (e.g. 23 commits after v0.1.17 -> 0.1.17.post23+g<sha>; on a tag -> 0.1.17)
+        VERSION: ${SIDEKICK_VERSION:-0.0.0}
     image: sidekick:latest
     container_name: sidekick
     env_file: .env

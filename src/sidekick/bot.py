@@ -40,7 +40,7 @@ from telegram.ext import (
 
 load_dotenv()
 
-from . import runtime_config  # noqa: E402
+from . import __version__, runtime_config  # noqa: E402
 from .agent import PERSONALITY_PRESETS, SidekickAgent  # noqa: E402
 from .allowlist import (  # noqa: E402
     DENIED_MESSAGE,
@@ -175,6 +175,7 @@ async def handle_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         '• "Delete the PTA meeting on Friday"\n\n'
         "Use /reset to clear our conversation history.\n"
         "Use /get_id to see this chat's ID (useful for setting up reminders).\n"
+        "Use /version to see which Sidekick version is running.\n"
         "Use /personality to change my tone (try: snarky, pirate, formal, butler)."
     )
 
@@ -198,6 +199,13 @@ async def handle_get_id(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         f"Set REMINDER_CHAT_ID={chat_id} in your .env file to enable "
         "morning summaries and pre-event reminders here."
     )
+
+
+async def handle_version(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not await _require_allowed(update):
+        return
+    assert update.message is not None
+    await update.message.reply_text(f"Sidekick {__version__}")
 
 
 async def handle_personality(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -579,6 +587,7 @@ def main() -> None:
     application.add_handler(CommandHandler("start", handle_start))
     application.add_handler(CommandHandler("reset", handle_reset))
     application.add_handler(CommandHandler("get_id", handle_get_id))
+    application.add_handler(CommandHandler("version", handle_version))
     application.add_handler(CommandHandler("personality", handle_personality))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 

@@ -22,7 +22,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from mcp import ClientSession
 from telegram import Bot
 
-from . import paths, runtime_config
+from . import __version__, paths, runtime_config
 from .llm import LLMClient, build_llm_client
 from .logging_setup import safe_repr
 from .reminders import (
@@ -86,7 +86,8 @@ def _write_config(config: dict[str, Any]) -> None:
 
 SYSTEM_PROMPT = """You are Sidekick, a friendly personal assistant bot that manages \
 your calendar, task lists, and scheduled reminders. Today is {today}. The timezone \
-is {timezone}.
+is {timezone}. You are running Sidekick version {version}; if someone asks which \
+version you are, tell them.
 
 You can manage multiple task lists for any purpose — groceries, project planning, \
 store-specific shopping, or anything else. When the user mentions a specific list by \
@@ -268,6 +269,19 @@ class SidekickAgent:
             self._chat_locks[chat_id] = lock
         return lock
 
+    def system_prompt(self) -> str:
+        """The system prompt for the next turn: date, timezone, version, tone."""
+        today = datetime.now(ZoneInfo(self.timezone)).date().isoformat()
+        personality_block = (
+            f"\n\nPersonality and tone: {self.personality}" if self.personality else ""
+        )
+        return SYSTEM_PROMPT.format(
+            today=today,
+            timezone=self.timezone,
+            version=__version__,
+            personality=personality_block,
+        )
+
     async def process_message(self, chat_id: int | str, user_text: str) -> str:
         """Main entry point — run one user turn and return the reply.
 
@@ -310,15 +324,7 @@ class SidekickAgent:
         Always leaves ``history`` ending in an assistant message, so the next
         user turn alternates correctly whatever way this one stopped.
         """
-        today = datetime.now(ZoneInfo(self.timezone)).date().isoformat()
-        personality_block = (
-            f"\n\nPersonality and tone: {self.personality}" if self.personality else ""
-        )
-        system = SYSTEM_PROMPT.format(
-            today=today,
-            timezone=self.timezone,
-            personality=personality_block,
-        )
+        system = self.system_prompt()
 
         for _ in range(MAX_TOOL_ITERATIONS):
             response = await self.llm.chat(

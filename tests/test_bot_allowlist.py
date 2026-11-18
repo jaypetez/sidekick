@@ -129,7 +129,9 @@ async def test_rate_limited_user_skips_agent(monkeypatch):
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("handler_name", ["handle_reset", "handle_get_id", "handle_personality"])
+@pytest.mark.parametrize(
+    "handler_name", ["handle_reset", "handle_get_id", "handle_version", "handle_personality"]
+)
 async def test_commands_deny_non_allowlisted_users(monkeypatch, handler_name):
     """Every command is gated — /personality rewrites the system prompt for
     all chats, so a stranger must not be able to reach it."""
@@ -163,7 +165,8 @@ async def test_personality_allowed_for_allowlisted_user(monkeypatch):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    "handler_name", ["handle_start", "handle_reset", "handle_get_id", "handle_personality"]
+    "handler_name",
+    ["handle_start", "handle_reset", "handle_get_id", "handle_version", "handle_personality"],
 )
 async def test_commands_ignore_updates_without_message(handler_name):
     """An *edited* command arrives with ``update.message is None``."""

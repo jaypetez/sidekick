@@ -291,7 +291,7 @@ Telegram needs two settings: a bot token and an allowlist.
 3. **Allow yourself in.** Set `TELEGRAM_ALLOWED_USER_IDS` to that ID (CSV for several people, e.g. `12345678,98765432`). **This is closed by default: if it's unset or empty, the bot rejects every message,** so this step is not optional. Restart after editing (in Docker, `docker compose up -d sidekick` recreates the container so it picks up the new `.env`).
 4. **Start chatting.** Open your bot in Telegram (search for its `@username`) and send `/start`. Then just talk to it.
 
-**Built-in commands:** `/start` (intro), `/reset` (clear conversation history), `/get_id` (print this chat's ID), `/personality <style>` (change tone).
+**Built-in commands:** `/start` (intro), `/reset` (clear conversation history), `/get_id` (print this chat's ID), `/version` (which Sidekick version is running), `/personality <style>` (change tone). You can also just ask it what version it's on.
 
 > The allowlist is keyed on **user** ID, while `REMINDER_CHAT_ID` (below) wants a **chat** ID. In a 1:1 DM with the bot the two are the same, so `/get_id` in your DM gives you the value for both. They differ only in group chats.
 
