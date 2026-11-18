@@ -39,7 +39,7 @@ PUBLIC_PATH_PREFIXES = ("/static/",)
 # revokes every session when SIDEKICK_WEB_AUTH_TOKEN is rotated.
 SESSION_MAX_AGE_SECONDS = 7 * 24 * 3600
 
-MIN_SESSION_SECRET_BYTES = 32
+MIN_SESSION_KEY_MATERIAL_BYTES = 32
 MIN_AUTH_TOKEN_LENGTH = 16
 
 # Example values shipped in .env.example files. Anyone who copies the
@@ -100,12 +100,12 @@ def load_or_create_session_secret() -> bytes:
     env_secret = os.getenv("SIDEKICK_WEB_SESSION_SECRET", "").strip()
     if env_secret:
         raw = env_secret.encode("utf-8")
-        if len(raw) >= MIN_SESSION_SECRET_BYTES:
+        if len(raw) >= MIN_SESSION_KEY_MATERIAL_BYTES:
             return hashlib.sha256(raw).digest()
         logger.error(
             "SIDEKICK_WEB_SESSION_SECRET is shorter than %d bytes and was ignored; "
             "using the generated secret in web_session.secret instead.",
-            MIN_SESSION_SECRET_BYTES,
+            MIN_SESSION_KEY_MATERIAL_BYTES,
         )
 
     secret_path = _config_dir() / "web_session.secret"
