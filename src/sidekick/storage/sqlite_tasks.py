@@ -13,7 +13,6 @@ Schema:
   tasks(id, list_id, title, status) status ∈ {incomplete, completed}, FK cascade
 """
 
-import os
 import sqlite3
 import threading
 from collections.abc import Iterator
@@ -21,6 +20,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
+from .. import paths
 from .base import TaskStore
 
 SCHEMA = """
@@ -52,10 +52,7 @@ def default_db_path() -> str:
 
 
 def _default_db_path() -> str:
-    return os.getenv(
-        "SIDEKICK_DB_PATH",
-        os.path.expanduser("~/.config/sidekick/sidekick.db"),
-    )
+    return paths.db_path()
 
 
 def _connect(db_path: str) -> sqlite3.Connection:

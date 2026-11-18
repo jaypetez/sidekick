@@ -25,6 +25,7 @@ import stat
 import time
 from pathlib import Path
 
+from .. import paths
 from ..util import LOOPBACK_HOSTS as LOOPBACK_HOSTS  # re-export: middleware imports it here
 from ..util import is_loopback_host as is_loopback_host
 from ..util import web_auth_token
@@ -69,8 +70,8 @@ SESSION_AUTH_KEY = "_authenticated"
 
 
 def _config_dir() -> Path:
-    """Return the resolved config directory (mirrors sidekick.reminders)."""
-    return Path(os.path.expanduser(os.getenv("SIDEKICK_CONFIG_DIR", "~/.config/sidekick")))
+    """Return the resolved config directory."""
+    return paths.config_dir()
 
 
 def get_auth_token() -> str | None:

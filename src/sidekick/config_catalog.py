@@ -60,6 +60,7 @@ class SettingSpec:
 
 
 _CFG = "~/.config/sidekick"
+_IN_CFG = "$SIDEKICK_CONFIG_DIR"  # state files default to this dir (see paths.py)
 
 CATALOG: Final[tuple[SettingSpec, ...]] = (
     # --- LLM ---------------------------------------------------------------
@@ -193,24 +194,24 @@ CATALOG: Final[tuple[SettingSpec, ...]] = (
     # --- Storage -----------------------------------------------------------
     SettingSpec("SIDEKICK_CONFIG_DIR", "Storage", "Config dir", "State directory.", _CFG),
     SettingSpec(
-        "SIDEKICK_DB_PATH", "Storage", "Database", "Tasks SQLite file.", f"{_CFG}/sidekick.db"
+        "SIDEKICK_DB_PATH", "Storage", "Database", "Tasks SQLite file.", f"{_IN_CFG}/sidekick.db"
     ),
     SettingSpec(
         "SIDEKICK_RUNTIME_CONFIG",
         "Storage",
         "Runtime overrides",
         "Settings-page overrides file.",
-        f"{_CFG}/runtime.json",
+        f"{_IN_CFG}/runtime.json",
     ),
     SettingSpec(
         "REMINDERS_FILE",
         "Storage",
         "Reminders file",
         "Custom reminders.",
-        f"{_CFG}/reminders.json",
+        f"{_IN_CFG}/reminders.json",
     ),
     SettingSpec(
-        "CONFIG_FILE", "Storage", "Personality file", "Personality state.", f"{_CFG}/config.json"
+        "CONFIG_FILE", "Storage", "Personality file", "Personality state.", f"{_IN_CFG}/config.json"
     ),
     # --- Limits ------------------------------------------------------------
     SettingSpec(

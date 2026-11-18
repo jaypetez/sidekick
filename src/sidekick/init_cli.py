@@ -15,6 +15,8 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from . import paths
+
 
 def _id_of(obj: Any) -> Any:
     """Chronary SDK objects may be Pydantic models or plain dicts; tolerate both."""
@@ -59,9 +61,9 @@ def main() -> None:
     calendar_id = _id_of(calendar)
     print(f"  calendar_id = {calendar_id}")
 
-    config_dir = Path(os.getenv("SIDEKICK_CONFIG_DIR", os.path.expanduser("~/.config/sidekick")))
-    config_dir.mkdir(parents=True, exist_ok=True)
-    config_path = config_dir / "config.json"
+    # Same file the agent reads (honors CONFIG_FILE / SIDEKICK_CONFIG_DIR).
+    config_path = Path(paths.personality_file())
+    config_path.parent.mkdir(parents=True, exist_ok=True)
 
     existing: dict[str, Any] = {}
     if config_path.exists():

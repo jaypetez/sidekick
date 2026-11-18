@@ -196,7 +196,8 @@ sidekick           # starts the bot
 | `OLLAMA_BASE_URL`, `OLLAMA_MODEL` | `LLM_PROVIDER=ollama` | local install (or compose `ollama` service) |
 | `CHRONARY_API_KEY` | always | [console.chronary.ai](https://console.chronary.ai) — org key for first-time `sidekick-init` |
 | `CHRONARY_AGENT_ID`, `CHRONARY_CALENDAR_ID` | always | printed by `sidekick-init` on first run |
-| `SIDEKICK_DB_PATH` | optional | default `~/.config/sidekick/sidekick.db` |
+| `SIDEKICK_DB_PATH` | optional | default `$SIDEKICK_CONFIG_DIR/sidekick.db` |
+| `SIDEKICK_CONFIG_DIR` | optional, default `~/.config/sidekick` | where every state file lives (DB, reminders, personality, runtime overrides, secrets) |
 | `REMINDER_CHAT_ID` | enables morning summary + pre-event alerts | send `/get_id` to the bot in the target chat |
 | `SLACK_BOT_TOKEN`, `SLACK_APP_TOKEN` | enabling the Slack adapter | Slack app config (below) |
 | `SIDEKICK_WEB_ENABLED` | optional, default `true` | set `false` to skip the admin dashboard |

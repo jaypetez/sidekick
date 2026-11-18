@@ -36,6 +36,8 @@ from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
 
+from . import paths
+
 logger = logging.getLogger(__name__)
 
 WEBHOOK_PATH = "/webhooks/chronary"
@@ -188,8 +190,7 @@ def format_reminder(
 
 def secret_file_path() -> Path:
     """Where ``sidekick-webhook register`` stores the signing secret (0600)."""
-    config_dir = os.path.expanduser(os.getenv("SIDEKICK_CONFIG_DIR", "~/.config/sidekick"))
-    return Path(config_dir) / "chronary_webhook.secret"
+    return paths.config_dir() / "chronary_webhook.secret"
 
 
 def load_webhook_secret() -> str | None:
@@ -208,10 +209,6 @@ def load_webhook_secret() -> str | None:
     return file_value or None
 
 
-def _default_db_path() -> str:
-    return os.getenv("SIDEKICK_DB_PATH", os.path.expanduser("~/.config/sidekick/sidekick.db"))
-
-
 class DeliveryLog:
     """Durable record of processed delivery ids (survives restarts).
 
@@ -222,7 +219,7 @@ class DeliveryLog:
 
     def __init__(self, db_path: str | None = None, *, conn: sqlite3.Connection | None = None):
         if conn is None:
-            path = db_path or _default_db_path()
+            path = db_path or paths.db_path()
             Path(path).parent.mkdir(parents=True, exist_ok=True)
             conn = sqlite3.connect(path, check_same_thread=False)
         self._conn = conn
