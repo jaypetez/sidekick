@@ -1,0 +1,5 @@
+# Deliberately fake secrets in tests (redaction / secret-hiding fixtures).
+# Format: <commit>:<file>:<rule>:<line> - see scripts/scan_secrets.py.
+8de3e9755612e772c9d97f236e393272cd3d0964:tests/services/test_system_service.py:generic-api-key:193
+8de3e9755612e772c9d97f236e393272cd3d0964:tests/services/test_system_service.py:generic-api-key:197
+54cdf7c76efdcd66ced71eeb6b531c3cae6ddb50:tests/test_runtime_config.py:generic-api-key:77
