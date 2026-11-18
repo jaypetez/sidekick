@@ -1,26 +1,26 @@
 # Design: System view & configuration inspector for the web dashboard
 
-Status: implemented · Scope: `src/sidekick/web`, `src/sidekick/services`, `sidekick-cli`
+Status: shipped in #155 (design record — the code is the source of truth) · Scope: `src/sidekick/web`, `src/sidekick/services`, `sidekick-cli`
 
-## Problem
+## Problem (before #155)
 
-The local dashboard (`http://127.0.0.1:8080`) already lets you work with the
+The local dashboard (`http://127.0.0.1:8080`) already let you work with the
 *data* Sidekick manages (tasks, reminders, calendar, chat) and edit the twelve
-runtime-editable settings. What it can't do is answer "how is this Sidekick
+runtime-editable settings. What it couldn't do was answer "how is this Sidekick
 set up, and is it healthy?":
 
-- The home page shows four tiles (scheduler, MCP, reminder count, tool count).
-  There is no version, uptime, active LLM provider/model, platform status
+- The home page showed four tiles (scheduler, MCP, reminder count, tool count).
+  There was no version, uptime, active LLM provider/model, platform status
   (Telegram / Slack), web bind / auth posture, webhook state, or file paths.
-- None of the 28 environment variables that are *not* runtime-editable are
-  visible anywhere, so checking a deployment means shelling in and reading `.env`.
-- The Settings page shows effective values but not where they come from. A
+- None of the 28 environment variables that are *not* runtime-editable were
+  visible anywhere, so checking a deployment meant shelling in and reading `.env`.
+- The Settings page showed effective values but not where they came from. A
   value could be a runtime override (`runtime.json`), an environment value
   (`.env`), or a built-in default, and the UI couldn't say which or offer a
   one-click "revert to `.env`/default".
-- Health logic is duplicated between `web/handlers/health.py` and
+- Health logic was duplicated between `web/handlers/health.py` and
   `web/api/health.py`, and setting metadata (labels, defaults, which keys
-  are secret) is scattered across modules.
+  are secret) was scattered across modules.
 
 ## Goals
 
@@ -61,7 +61,9 @@ access (the dashboard stays loopback-only by default).
   duplicated, and tests assert that every editable key and every
   `runtime_config.SECRET_KEYS` member is catalogued and flagged correctly.
 - **`runtime_config.source(key)`**: returns `"override" | "env" | "default"`,
-  so the store stays the only code that knows about the overlay file.
+  so the store stays the only code that knows about the overlay file. The
+  service layer can additionally report `"file"` for `CHRONARY_WEBHOOK_SECRET`
+  when the secret comes from `chronary_webhook.secret` rather than the env.
 - **`services/system.py`**: framework-free functions that take `bot_data`
   (plus the optional webhook log) and return plain dicts. Both health
   handlers, the dashboard, the System page, `/api/system`, and the CLI read
@@ -81,17 +83,24 @@ shape (`scheduler`, `mcp`, `reminders`, `tools`, `webhook{...}`).
   "version": "0.1.17", "started_at": "…ISO…", "uptime_seconds": 3600,
   "status": { …status()… },
   "llm": {"provider": "anthropic", "model": "claude-…"},
-  "platforms": {"telegram": "running|disabled", "slack": "running|stopped|disabled"},
+  "platforms": {"telegram": "enabled|disabled|unknown", "slack": "running|starting|stopped|disabled"},
   "web": {"host": "127.0.0.1", "port": 8080, "auth_enabled": false, "loopback": true},
   "reminders": {"chat_configured": true, "pre_event_source": "poll", "timezone": "America/Chicago"},
-  "paths": {"config_dir": "…", "runtime_config": "…", "database": "…", "reminders_file": "…"}
+  "paths": {"config_dir": "…", "runtime_config": "…", "database": "…", "reminders_file": "…", "personality_file": "…"}
 }
 ```
 
 `services.system.config_report()`: list of groups, each
 `{"group", "settings": [{key, label, description, value, display, source,
 default, editable, secret, restart_required}]}`. For secrets, `value` is always
-`null` and `display` is `"set"` / `"not set"`.
+`null` and `display` is `"set"` / `"not set"`, or the spec's `unset_display`
+hint when unset (e.g. `"auto-generated (web_session.secret)"`). Non-secret
+URL values have embedded credentials masked (`scheme://***@host`).
+
+Telegram polling health isn't observable from `bot_data`, so the platform
+reports only whether the adapter was started (`enabled`/`disabled`, or
+`unknown` before startup), never `running`. Slack reports `starting` while its
+startup task is in flight.
 
 `GET /api/settings` additionally returns `sources: {key: source}` and
 `defaults: {key: default}` for the editable keys.
