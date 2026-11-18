@@ -201,13 +201,31 @@ async def test_send_custom_reminder_processes_through_agent(monkeypatch):
 
     await send_custom_reminder(agent, "What's on the calendar today?")
 
-    agent.process_message.assert_called_once_with(
-        _REMINDER_CHAT_ID, "What's on the calendar today?"
-    )
+    agent.process_message.assert_called_once()
+    run_chat_id, prompt = agent.process_message.call_args.args
+    assert run_chat_id.startswith(f"{_REMINDER_CHAT_ID}:")
+    assert prompt == "What's on the calendar today?"
     agent.bot.send_message.assert_called_once_with(
         chat_id=-100999, text="You have 3 events today.", parse_mode="Markdown"
     )
-    agent.clear_history.assert_called_once_with(_REMINDER_CHAT_ID)
+    # The per-run history is discarded afterwards.
+    agent.clear_history.assert_called_once_with(run_chat_id)
+
+
+@pytest.mark.asyncio
+async def test_send_custom_reminder_uses_fresh_chat_id_each_run(monkeypatch):
+    """Concurrent reminders must not share one conversation history."""
+    monkeypatch.setenv("REMINDER_CHAT_ID", "-100999")
+    agent = MagicMock()
+    agent.process_message = AsyncMock(return_value="ok")
+    agent.bot = MagicMock()
+    agent.bot.send_message = AsyncMock()
+
+    await send_custom_reminder(agent, "a")
+    await send_custom_reminder(agent, "b")
+
+    first, second = (c.args[0] for c in agent.process_message.call_args_list)
+    assert first != second
 
 
 @pytest.mark.asyncio
@@ -358,7 +376,9 @@ async def test_scheduler_actually_fires_reminder(monkeypatch):
     scheduler.shutdown(wait=False)
 
     assert agent.bot.send_message.call_count >= 1
-    agent.process_message.assert_called_with(_REMINDER_CHAT_ID, "Scheduler test")
+    run_chat_id, prompt = agent.process_message.call_args.args
+    assert run_chat_id.startswith(f"{_REMINDER_CHAT_ID}:")
+    assert prompt == "Scheduler test"
 
 
 # -------------------------------------------------------------------

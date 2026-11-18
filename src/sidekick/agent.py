@@ -7,9 +7,11 @@ tools are handled locally (not via MCP subprocess) since they need
 access to the in-process APScheduler instance.
 """
 
+import asyncio
 import json
 import logging
 import os
+import weakref
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -32,7 +34,10 @@ from .reminders import (
 
 logger = logging.getLogger(__name__)
 
-MAX_HISTORY_TURNS = 20  # max user+assistant pairs to keep per chat
+MAX_HISTORY_TURNS = 20  # max user turns (each with its tool exchanges) per chat
+# Upper bound on LLM round-trips in one turn. A model stuck re-calling a
+# failing tool would otherwise loop (and bill) until the context overflowed.
+MAX_TOOL_ITERATIONS = 10
 
 # Tools whose effects are irreversible. Currently used as documentation +
 # soft signal for log review; future work may add confirmation gating.
@@ -199,6 +204,9 @@ class SidekickAgent:
         # chat_id can be an int (Telegram, historic) or a string ("sl:C0123",
         # "tg:-100123") once platforms prefix their ids.
         self.conversation_history: dict[int | str, list[dict[str, Any]]] = {}
+        self._chat_locks: weakref.WeakValueDictionary[int | str, asyncio.Lock] = (
+            weakref.WeakValueDictionary()
+        )
         self.tools: list[dict[str, Any]] = []
         self.personality = _read_config().get("personality", "")
         self.scheduler = scheduler
@@ -250,38 +258,61 @@ class SidekickAgent:
         _write_config(config)
         return label
 
+    def _lock_for(self, chat_id: int | str) -> asyncio.Lock:
+        """Per-chat lock so two turns on one chat never interleave history.
+
+        Held in a ``WeakValueDictionary``: the lock lives exactly as long as
+        someone holds or awaits it, so one-off chat ids (each reminder run
+        uses a fresh one) don't accumulate.
+        """
+        lock = self._chat_locks.get(chat_id)
+        if lock is None:
+            lock = asyncio.Lock()
+            self._chat_locks[chat_id] = lock
+        return lock
+
     async def process_message(self, chat_id: int | str, user_text: str) -> str:
-        """Main entry point — append user message to history, run tool loop, return reply."""
-        history = self.conversation_history.setdefault(chat_id, [])
+        """Main entry point — run one user turn and return the reply.
 
-        # Snapshot length BEFORE adding anything so we can fully restore on error
-        snapshot_len = len(history)
+        The turn runs on a *copy* of the chat's history, which replaces the
+        stored history only when the turn finishes cleanly. A failure part
+        way through (rate limit, network error, Ollama crash) therefore
+        leaves the stored history exactly as it was — never a dangling
+        ``tool_use`` without its ``tool_result``, which the API would reject
+        on the next message.
+        """
+        async with self._lock_for(chat_id):
+            history = self.conversation_history.setdefault(chat_id, [])
+            working = [*history, {"role": "user", "content": user_text}]
+            self._trim_history(working)
 
-        history.append({"role": "user", "content": user_text})
-        self._trim_history(history)
+            try:
+                reply = await self._run_tool_loop(working)
+            except anthropic.BadRequestError as e:
+                # The provider rejected the history itself (should no longer
+                # happen, but stay defensive). Clear it so the user can retry.
+                logger.error("Corrupted history for chat %s, clearing: %s", chat_id, e)
+                self.clear_history(chat_id)
+                return (
+                    "I hit a conversation error and had to reset. "
+                    "Sorry about that — please send your message again."
+                )
+            except Exception:
+                logger.exception("Error in tool loop for chat %s", chat_id)
+                raise  # stored history untouched — nothing to roll back
 
-        try:
-            reply = await self._run_tool_loop(chat_id)
-        except anthropic.BadRequestError as e:
-            # History is corrupted (mismatched tool_use/tool_result). Clear it
-            # entirely and tell the user so they can just repeat their message.
-            logger.error("Corrupted history for chat %s, clearing: %s", chat_id, e)
-            self.clear_history(chat_id)
-            return (
-                "I hit a conversation error and had to reset. "
-                "Sorry about that — please send your message again."
-            )
-        except Exception:
-            logger.exception("Error in tool loop for chat %s", chat_id)
-            # Restore history to exactly where it was before this request
-            del history[snapshot_len:]
-            raise
+            # Commit, unless the chat was reset (/reset, web "clear") while
+            # this turn was running — then the reset wins.
+            if self.conversation_history.get(chat_id) is history:
+                history[:] = working
+            return reply
 
-        return reply
+    async def _run_tool_loop(self, history: list[dict[str, Any]]) -> str:
+        """Run the tool-use loop on ``history`` (mutated in place); return final text.
 
-    async def _run_tool_loop(self, chat_id: int | str) -> str:
-        """Run the Claude tool-use loop until end_turn, return final text."""
-        history = self.conversation_history[chat_id]
+        Always leaves ``history`` ending in an assistant message, so the next
+        user turn alternates correctly whatever way this one stopped.
+        """
         today = datetime.now(ZoneInfo(self.timezone)).date().isoformat()
         personality_block = (
             f"\n\nPersonality and tone: {self.personality}" if self.personality else ""
@@ -292,7 +323,7 @@ class SidekickAgent:
             personality=personality_block,
         )
 
-        while True:
+        for _ in range(MAX_TOOL_ITERATIONS):
             response = await self.llm.chat(
                 system=system,
                 messages=history,
@@ -307,62 +338,75 @@ class SidekickAgent:
                 return text
 
             if response.stop_reason == "tool_use":
-                # Append the full assistant message (text + tool_use blocks)
+                # Append the full assistant message (text + tool_use blocks),
+                # then all tool results in a single user message.
                 history.append({"role": "assistant", "content": response.content})
-
-                # Execute every tool call and collect results
-                tool_results = []
-                for block in response.content:
-                    if block.type != "tool_use":
-                        continue
-                    self._log_tool_call(block.name, block.input)
-
-                    is_error = False
-                    if block.name in LOCAL_REMINDER_TOOLS:
-                        # Handle reminder tools locally
-                        try:
-                            result_text = json.dumps(
-                                self._handle_reminder_tool(block.name, block.input)
-                            )
-                        except Exception as exc:
-                            logger.exception("Local reminder tool %s failed", block.name)
-                            result_text = json.dumps({"error": str(exc)})
-                            is_error = True
-                    else:
-                        # Forward to MCP subprocess — wrap so a transport/server
-                        # error becomes a tool_result the LLM can recover from,
-                        # not an unhandled exception that aborts the whole turn.
-                        try:
-                            mcp_result = await self.session.call_tool(block.name, block.input)
-                            if mcp_result.content:
-                                first = mcp_result.content[0]
-                                result_text = (
-                                    first.text
-                                    if hasattr(first, "text")
-                                    else '{"error": "no result"}'
-                                )
-                            else:
-                                result_text = '{"error": "no result"}'
-                        except Exception as exc:
-                            logger.exception("MCP tool %s failed", block.name)
-                            result_text = json.dumps({"error": f"tool {block.name} failed: {exc}"})
-                            is_error = True
-
-                    tool_result_block: dict[str, Any] = {
-                        "type": "tool_result",
-                        "tool_use_id": block.id,
-                        "content": result_text,
-                    }
-                    if is_error:
-                        tool_result_block["is_error"] = True
-                    tool_results.append(tool_result_block)
-
-                # All tool results go back in a single user message
-                history.append({"role": "user", "content": tool_results})
+                history.append({"role": "user", "content": await self._run_tools(response)})
                 continue
 
-            # Unexpected stop reason — return whatever text we have
-            return self._extract_text(response.content) or "(no response)"
+            # max_tokens / refusal / anything else: keep only the text. A
+            # tool_use block cut off mid-generation has no result and would
+            # poison the history.
+            text = self._extract_text(response.content)
+            logger.warning("LLM stopped with stop_reason=%s", response.stop_reason)
+            if response.stop_reason == "max_tokens":
+                text = (text + "\n\n(My reply was cut off — ask me to continue.)").strip()
+            text = text or "(no response)"
+            history.append({"role": "assistant", "content": text})
+            return text
+
+        logger.warning("Tool loop hit MAX_TOOL_ITERATIONS=%d", MAX_TOOL_ITERATIONS)
+        text = (
+            "I stopped after too many tool calls without finishing. "
+            "Could you rephrase or break the request into smaller steps?"
+        )
+        history.append({"role": "assistant", "content": text})
+        return text
+
+    async def _run_tools(self, response: Any) -> list[dict[str, Any]]:
+        """Execute every tool_use block in ``response``; return tool_result blocks."""
+        tool_results: list[dict[str, Any]] = []
+        for block in response.content:
+            if block.type != "tool_use":
+                continue
+            self._log_tool_call(block.name, block.input)
+
+            is_error = False
+            if block.name in LOCAL_REMINDER_TOOLS:
+                # Handle reminder tools locally
+                try:
+                    result_text = json.dumps(self._handle_reminder_tool(block.name, block.input))
+                except Exception as exc:
+                    logger.exception("Local reminder tool %s failed", block.name)
+                    result_text = json.dumps({"error": str(exc)})
+                    is_error = True
+            else:
+                # Forward to MCP subprocess — wrap so a transport/server
+                # error becomes a tool_result the LLM can recover from,
+                # not an unhandled exception that aborts the whole turn.
+                try:
+                    mcp_result = await self.session.call_tool(block.name, block.input)
+                    if mcp_result.content:
+                        first = mcp_result.content[0]
+                        result_text = (
+                            first.text if hasattr(first, "text") else '{"error": "no result"}'
+                        )
+                    else:
+                        result_text = '{"error": "no result"}'
+                except Exception as exc:
+                    logger.exception("MCP tool %s failed", block.name)
+                    result_text = json.dumps({"error": f"tool {block.name} failed: {exc}"})
+                    is_error = True
+
+            tool_result_block: dict[str, Any] = {
+                "type": "tool_result",
+                "tool_use_id": block.id,
+                "content": result_text,
+            }
+            if is_error:
+                tool_result_block["is_error"] = True
+            tool_results.append(tool_result_block)
+        return tool_results
 
     def _handle_reminder_tool(
         self, name: str, args: dict[str, Any]
@@ -417,13 +461,23 @@ class SidekickAgent:
             logger.info("Calling tool %s", name)
         logger.debug("Tool %s args: %s", name, safe_repr(args))
 
+    @staticmethod
+    def _is_turn_start(message: dict[str, Any]) -> bool:
+        """A real user turn: role=user with text, not a tool_result list."""
+        return message.get("role") == "user" and isinstance(message.get("content"), str)
+
     def _trim_history(self, history: list[dict[str, Any]]) -> None:
-        """Keep history within MAX_HISTORY_TURNS pairs to avoid unbounded growth."""
-        # Count user messages as a proxy for turns
-        user_count = sum(1 for m in history if m["role"] == "user")
-        while user_count > MAX_HISTORY_TURNS and len(history) >= 2:
-            # Remove the oldest user+assistant pair
-            history.pop(0)
-            if history and history[0]["role"] == "assistant":
-                history.pop(0)
-            user_count -= 1
+        """Keep at most MAX_HISTORY_TURNS user turns, cutting only at turn starts.
+
+        A turn is a user message plus everything up to the next user message
+        (assistant tool_use, user tool_result, ...). Cutting anywhere else
+        could leave a ``tool_result`` whose ``tool_use`` was trimmed away —
+        the provider rejects that with a 400, which used to wipe the chat.
+        """
+        starts = [i for i, m in enumerate(history) if self._is_turn_start(m)]
+        if not starts:
+            history.clear()
+            return
+        keep_from = starts[max(0, len(starts) - MAX_HISTORY_TURNS)]
+        if keep_from:
+            del history[:keep_from]
