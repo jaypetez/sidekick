@@ -22,6 +22,7 @@ import asyncio
 import logging
 import os
 import sys
+from datetime import UTC, datetime
 from typing import Any, TypeAlias
 
 from dotenv import load_dotenv
@@ -52,7 +53,7 @@ from .platforms.base import IncomingMessage  # noqa: E402
 from .ratelimit import get_default_limiter  # noqa: E402
 from .reminders import load_custom_reminders, setup_scheduler  # noqa: E402
 from .telegram_format import reply_safe  # noqa: E402
-from .util import watch_task  # noqa: E402
+from .util import slack_configured, watch_task, web_bind  # noqa: E402
 from .web import make_app as make_web_app  # noqa: E402
 
 TELEGRAM_ALLOWED_ENV = "TELEGRAM_ALLOWED_USER_IDS"
@@ -292,6 +293,9 @@ async def _bootstrap_services(bot_data: dict[str, Any], bot: Bot | None) -> None
     starts but the built-in delivery jobs that need a Telegram Bot are skipped.
     """
     logger.info("Starting Sidekick (%s mode)", "telegram" if bot else "web-only")
+    # Read by services/system.py for the dashboard's uptime + platform status.
+    bot_data["started_at"] = datetime.now(UTC)
+    bot_data["telegram_enabled"] = bot is not None
 
     if bot is not None:
         warn_if_empty(_telegram_allowlist(), TELEGRAM_ALLOWED_ENV)
@@ -346,7 +350,7 @@ async def _bootstrap_services(bot_data: dict[str, Any], bot: Bot | None) -> None
 
     load_custom_reminders(scheduler, agent)
 
-    if os.getenv("SLACK_BOT_TOKEN") and os.getenv("SLACK_APP_TOKEN"):
+    if slack_configured():
         slack_task = watch_task(asyncio.create_task(_run_slack(bot_data, agent)), "slack")
         bot_data["slack_task"] = slack_task
         logger.info("Slack adapter enabled")
@@ -438,8 +442,7 @@ async def _run_web(bot_data: dict[str, Any]) -> None:
     from .storage.sqlite_tasks import SQLiteTaskStore
     from .web.auth import auth_token_problem, get_auth_token, is_loopback_host
 
-    host = os.getenv("SIDEKICK_WEB_HOST", "127.0.0.1")
-    port = int(os.getenv("SIDEKICK_WEB_PORT", "8080"))
+    host, port = web_bind()
 
     # Defense in depth: never bind to a non-loopback interface without an
     # auth token. The dashboard exposes chat + task management — leaving

@@ -4,6 +4,6 @@ Each module exposes a ``register(subparsers)`` function that wires its
 parsers into the top-level ``argparse`` instance built in ``main.py``.
 """
 
-from . import chat, events, reminders, settings, tasks
+from . import chat, events, reminders, settings, system, tasks
 
-ALL_GROUPS = (tasks, reminders, events, chat, settings)
+ALL_GROUPS = (tasks, reminders, events, chat, settings, system)

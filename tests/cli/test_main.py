@@ -207,3 +207,72 @@ def test_settings_test_llm_renders_reply(capsys):
     out = capsys.readouterr().out
     assert "AnthropicClient" in out
     assert "OK" in out
+
+
+SYSTEM_OVERVIEW = {
+    "version": "1.2.3",
+    "uptime_seconds": 60,
+    "status": {"scheduler": True, "mcp": False, "reminders": 3, "tools": 16},
+    "llm": {"provider": "ollama", "model": "llama3.1:8b"},
+    "platforms": {"telegram": "running", "slack": "disabled"},
+    "web": {"host": "127.0.0.1", "port": 8080, "auth_enabled": False},
+}
+
+CONFIG_REPORT = {
+    "groups": [
+        {
+            "group": "LLM",
+            "settings": [
+                {"key": "LLM_PROVIDER", "display": "ollama", "source": "override", "editable": True}
+            ],
+        },
+        {
+            "group": "Web dashboard",
+            "settings": [
+                {
+                    "key": "SIDEKICK_WEB_PORT",
+                    "display": "8080",
+                    "source": "default",
+                    "editable": False,
+                }
+            ],
+        },
+    ]
+}
+
+
+def test_system_status_human(capsys):
+    rc, captured = _run(["system", "status"], SYSTEM_OVERVIEW)
+    assert rc == 0
+    assert captured[0].url.path == "/api/system"
+    out = capsys.readouterr().out
+    assert "1.2.3" in out
+    assert "ollama · llama3.1:8b" in out
+    assert "mcp" in out and "down" in out
+
+
+def test_system_status_json(capsys):
+    rc, _ = _run(["--json", "system", "status"], SYSTEM_OVERVIEW)
+    assert rc == 0
+    assert '"version": "1.2.3"' in capsys.readouterr().out
+
+
+def test_system_config_table_and_group_filter(capsys):
+    rc, captured = _run(["system", "config", "--group", "llm"], CONFIG_REPORT)
+    assert rc == 0
+    assert captured[0].url.path == "/api/config"
+    out = capsys.readouterr().out
+    assert "LLM_PROVIDER" in out
+    assert "SIDEKICK_WEB_PORT" not in out
+
+
+def test_system_config_unknown_group(capsys):
+    rc, _ = _run(["system", "config", "--group", "nope"], CONFIG_REPORT)
+    assert rc == 0
+    assert "no matching group" in capsys.readouterr().out
+
+
+def test_system_config_json(capsys):
+    rc, _ = _run(["--json", "system", "config"], CONFIG_REPORT)
+    assert rc == 0
+    assert "SIDEKICK_WEB_PORT" in capsys.readouterr().out

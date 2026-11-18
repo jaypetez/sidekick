@@ -19,6 +19,16 @@ const presetsList = document.getElementById("presets");
 // user types into them or clicks the Clear button.
 const baseline = new Map(); // key -> string value (the rendered placeholder text or "")
 const secretState = new Map(); // key -> { set: bool, preview: string, clearRequested: bool }
+// Keys the user asked to revert to their .env / built-in value on next save.
+const pendingReset = new Set();
+let defaults = {}; // key -> built-in default (or null)
+let lastSources = {}; // key -> "override" | "env" | "default", from the last load/save
+
+const SOURCE_LABELS = {
+  override: "override",
+  env: "from .env",
+  default: "default",
+};
 
 function setStatus(el, kind, text) {
   el.dataset.kind = kind; // "ok" | "error" | "loading" | ""
@@ -67,6 +77,67 @@ function applySettingsSnapshot(snapshot, editableKeys, secretKeys) {
   syncProviderVisibility();
 }
 
+// The `.field` wrapper for a setting (radio groups have no single element).
+function fieldContainer(key) {
+  const el = form.querySelector(`[name="${CSS.escape(key)}"]`);
+  return el ? el.closest(".field") : null;
+}
+
+// Show where each value comes from, plus a Reset button for overrides.
+function renderSources(sources) {
+  lastSources = sources || {};
+  for (const [key, source] of Object.entries(lastSources)) {
+    const container = fieldContainer(key);
+    if (!container) continue;
+    let meta = container.querySelector(`[data-meta-for="${CSS.escape(key)}"]`);
+    if (!meta) {
+      meta = document.createElement("span");
+      meta.className = "field-meta";
+      meta.dataset.metaFor = key;
+      const label = container.querySelector("label");
+      if (label && !label.closest(".radio-group")) label.appendChild(meta);
+      else container.prepend(meta);
+    }
+    meta.replaceChildren();
+    const badge = document.createElement("span");
+    badge.className = `badge ${source}`;
+    badge.textContent = SOURCE_LABELS[source] || source;
+    badge.title =
+      source === "override"
+        ? "Set from this page (runtime.json); wins over .env"
+        : source === "env"
+          ? "Set in the environment / .env"
+          : "Not set anywhere; Sidekick's built-in default applies";
+    meta.appendChild(badge);
+    if (source === "override") {
+      const reset = document.createElement("button");
+      reset.type = "button";
+      reset.className = "secondary inline";
+      reset.textContent = "Reset";
+      reset.title = "Drop the override and fall back to .env or the default";
+      reset.addEventListener("click", () => requestReset(key, badge));
+      meta.appendChild(reset);
+    }
+    // Non-secret, unset fields: show the built-in default as the placeholder.
+    const field = form.elements[key];
+    if (source === "default" && defaults[key] && field && !secretState.has(key) && "placeholder" in field) {
+      field.placeholder = defaults[key];
+    }
+  }
+}
+
+function requestReset(key, badge) {
+  pendingReset.add(key);
+  badge.textContent = "resets on save";
+  const field = form.elements[key];
+  if (field && !(field instanceof RadioNodeList) && field.tagName !== "SELECT") {
+    if (field.dataset.origPlaceholder === undefined) field.dataset.origPlaceholder = field.placeholder;
+    field.value = "";
+    field.placeholder = "(will use .env / default)";
+  }
+  setStatus(status, "", `${key} will revert to .env / default on save.`);
+}
+
 function applyPersonalitySnapshot(info) {
   if (!info) return;
   personalityCurrent.textContent = info.current || "default (friendly assistant)";
@@ -85,7 +156,9 @@ async function loadSettings() {
   setStatus(status, "loading", "Loading…");
   try {
     const data = await apiFetch("/api/settings");
+    defaults = data.defaults || {};
     applySettingsSnapshot(data.settings, data.editable_keys, data.secret_keys);
+    renderSources(data.sources);
     applyPersonalitySnapshot(data.personality);
     setStatus(status, "", "");
   } catch (err) {
@@ -111,6 +184,7 @@ function collectChanges() {
       changes[key] = field.value;
     }
   }
+  for (const key of pendingReset) changes[key] = "";
   return changes;
 }
 
@@ -125,6 +199,8 @@ form.addEventListener("submit", async (event) => {
   try {
     const data = await apiFetch("/api/settings", { method: "PATCH", body: changes });
     applySettingsSnapshot(data.settings, Object.keys(data.settings), Array.from(secretState.keys()));
+    pendingReset.clear();
+    renderSources(data.sources);
     const restart = data.restart_required || [];
     const summary =
       `Saved ${data.applied.length} change(s)` +
@@ -137,12 +213,24 @@ form.addEventListener("submit", async (event) => {
 });
 
 // Provider radio toggles visibility immediately
-form.elements["LLM_PROVIDER"].forEach?.((radio) => {
-  radio.addEventListener("change", syncProviderVisibility);
-});
 for (const radio of form.querySelectorAll('input[name="LLM_PROVIDER"]')) {
   radio.addEventListener("change", syncProviderVisibility);
 }
+
+// Editing a field after pressing Reset means the user wants the new value.
+form.addEventListener("input", (event) => {
+  const key = event.target && event.target.name;
+  if (key && pendingReset.delete(key)) {
+    // Restore the real badge + Reset button for this field.
+    if (lastSources[key]) renderSources({ ...lastSources });
+    const field = form.elements[key];
+    if (field && field.dataset && field.dataset.origPlaceholder !== undefined) {
+      field.placeholder = field.dataset.origPlaceholder;
+      delete field.dataset.origPlaceholder;
+    }
+    setStatus(status, "", "");
+  }
+});
 
 // Clear buttons next to secret fields
 for (const button of form.querySelectorAll("button[data-clear]")) {

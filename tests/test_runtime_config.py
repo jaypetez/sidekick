@@ -188,3 +188,21 @@ def test_persist_leaves_no_temp_files(isolated_runtime_config):
     runtime_config.set_value("CLAUDE_MODEL", "b")
     leftovers = [p.name for p in Path(isolated_runtime_config).parent.iterdir()]
     assert leftovers == [Path(isolated_runtime_config).name]
+
+
+def test_source_reports_override_env_and_default(monkeypatch):
+    monkeypatch.delenv("OLLAMA_MODEL", raising=False)
+    assert runtime_config.source("OLLAMA_MODEL") == "default"
+    monkeypatch.setenv("OLLAMA_MODEL", "env-model")
+    assert runtime_config.source("OLLAMA_MODEL") == "env"
+    runtime_config.set_value("OLLAMA_MODEL", "override-model")
+    assert runtime_config.source("OLLAMA_MODEL") == "override"
+    runtime_config.unset("OLLAMA_MODEL")
+    assert runtime_config.source("OLLAMA_MODEL") == "env"
+
+
+def test_source_for_non_editable_key_reads_env(monkeypatch):
+    monkeypatch.setenv("SIDEKICK_WEB_PORT", "9000")
+    assert runtime_config.source("SIDEKICK_WEB_PORT") == "env"
+    monkeypatch.delenv("SIDEKICK_WEB_PORT")
+    assert runtime_config.source("SIDEKICK_WEB_PORT") == "default"

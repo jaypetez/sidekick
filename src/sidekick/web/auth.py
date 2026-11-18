@@ -25,12 +25,12 @@ import stat
 import time
 from pathlib import Path
 
+from ..util import LOOPBACK_HOSTS as LOOPBACK_HOSTS  # re-export: middleware imports it here
+from ..util import is_loopback_host as is_loopback_host
+from ..util import web_auth_token
 from ..webhooks import WEBHOOK_PATH
 
 logger = logging.getLogger(__name__)
-
-# Loopback addresses we consider "safe" for token-less operation.
-LOOPBACK_HOSTS = frozenset({"127.0.0.1", "localhost", "::1"})
 
 # Paths that never require auth: liveness probe + static assets. ``/health``
 # is matched exactly; ``/static/`` as a prefix.
@@ -75,13 +75,7 @@ def _config_dir() -> Path:
 
 def get_auth_token() -> str | None:
     """Return the configured bearer token, or ``None`` if auth is disabled."""
-    token = os.getenv("SIDEKICK_WEB_AUTH_TOKEN", "").strip()
-    return token or None
-
-
-def is_loopback_host(host: str) -> bool:
-    """True when ``host`` is a loopback address we don't require a token for."""
-    return host.strip().lower() in LOOPBACK_HOSTS
+    return web_auth_token()
 
 
 def constant_time_equals(a: str, b: str) -> bool:

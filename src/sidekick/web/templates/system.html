@@ -1,0 +1,110 @@
+{% extends "base.html" %}
+{% block title %}System{% endblock %}
+{% macro state(label, value, good) -%}
+<article class="tile">
+  <h2>{{ label }}</h2>
+  <p class="status {{ 'ok' if good else 'down' }}">{{ value }}</p>
+</article>
+{%- endmacro %}
+{% macro platform(label, value) -%}
+{# running/enabled = healthy, stopped = broken, anything else (disabled, starting, unknown) = neutral #}
+<article class="tile">
+  <h2>{{ label }}</h2>
+  <p class="status {{ 'ok' if value in ('running', 'enabled') else ('down' if value == 'stopped' else 'neutral') }}">{{ value | capitalize }}</p>
+</article>
+{%- endmacro %}
+{% block content %}
+<div class="page-head">
+  <h1>System</h1>
+  <p class="muted">Sidekick {{ info.version }} · up {{ uptime }}</p>
+</div>
+
+<section class="tiles" aria-label="Component status">
+  {{ state('Scheduler', 'Running' if info.status.scheduler else 'Stopped', info.status.scheduler) }}
+  {{ state('MCP subprocess', 'Up' if info.status.mcp else 'Down', info.status.mcp) }}
+  {{ platform('Telegram', info.platforms.telegram) }}
+  {{ platform('Slack', info.platforms.slack) }}
+  <article class="tile">
+    <h2>LLM</h2>
+    {% if info.llm.provider %}
+    <p class="status ok">{{ info.llm.provider }}</p>
+    <p class="tile-detail"><code>{{ info.llm.model or 'unknown model' }}</code></p>
+    {% else %}
+    <p class="status down">Not ready</p>
+    {% endif %}
+  </article>
+  <article class="tile">
+    <h2>Jobs · tools</h2>
+    <p class="count">{{ info.status.reminders }} · {{ info.status.tools }}</p>
+  </article>
+</section>
+
+<section class="detail-grid">
+  <article class="settings-card">
+    <h2>Web dashboard</h2>
+    <dl class="kv">
+      <dt>Bind</dt><dd><code>{{ info.web.host }}:{{ info.web.port }}</code>
+        {% if info.web.loopback %}<span class="badge">local only</span>{% else %}<span class="badge warn">network</span>{% endif %}</dd>
+      <dt>Auth token</dt><dd>{{ 'Required' if info.web.auth_enabled else 'Off (loopback)' }}</dd>
+    </dl>
+  </article>
+  <article class="settings-card">
+    <h2>Reminders</h2>
+    <dl class="kv">
+      <dt>Delivery chat</dt><dd>{{ 'Configured' if info.reminders.chat_configured else 'Not set — reminders are not delivered' }}</dd>
+      <dt>Pre-event source</dt><dd>{{ info.reminders.pre_event_source }}</dd>
+      <dt>Timezone</dt><dd>{{ info.reminders.timezone }}</dd>
+      <dt>Webhooks</dt><dd>
+        {% if info.status.webhook.configured %}Secret configured{% else %}Not configured{% endif %}
+        {% if info.status.webhook.last_received_at %} · last push {{ info.status.webhook.last_received_at }}{% endif %}
+      </dd>
+    </dl>
+  </article>
+  <article class="settings-card">
+    <h2>Files</h2>
+    <dl class="kv">
+      <dt>Config dir</dt><dd><code>{{ info.paths.config_dir }}</code></dd>
+      <dt>Overrides</dt><dd><code>{{ info.paths.runtime_config }}</code></dd>
+      <dt>Database</dt><dd><code>{{ info.paths.database }}</code></dd>
+      <dt>Reminders</dt><dd><code>{{ info.paths.reminders_file }}</code></dd>
+      <dt>Personality</dt><dd><code>{{ info.paths.personality_file }}</code></dd>
+    </dl>
+  </article>
+</section>
+
+<h2 class="section-title">Configuration</h2>
+<p class="muted">
+  Effective values. <span class="badge override">override</span> came from the
+  Settings page, <span class="badge env">env</span> from the environment / <code>.env</code>,
+  <span class="badge default">default</span> is built in. Secrets are never shown.
+  Editable settings link to <a href="/settings">Settings</a>; everything else needs a
+  <code>.env</code> change and a restart.
+</p>
+{% for group in groups %}
+<section class="settings-card config-group">
+  <h2>{{ group.group }}</h2>
+  <table class="config-table">
+    <thead><tr><th>Setting</th><th>Value</th><th>Source</th><th></th></tr></thead>
+    <tbody>
+    {% for s in group.settings %}
+      <tr>
+        <td>
+          <div>{{ s.label }}</div>
+          <code class="key" title="{{ s.description }}">{{ s.key }}</code>
+        </td>
+        <td class="value{% if s.value is none %} muted{% endif %}">
+          {% if s.secret %}<span class="badge {{ 'ok' if s.display == 'set' else '' }}">{{ s.display }}</span>
+          {% else %}<code>{{ s.display }}</code>{% endif %}
+        </td>
+        <td><span class="badge {{ s.source }}">{{ s.source }}</span></td>
+        <td class="actions">
+          {% if s.editable %}<a href="/settings">Edit</a>{% endif %}
+          {% if s.restart_required %}<span class="hint">restart to apply</span>{% endif %}
+        </td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endfor %}
+{% endblock %}

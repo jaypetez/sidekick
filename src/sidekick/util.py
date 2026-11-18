@@ -4,12 +4,36 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 from collections.abc import Callable
-from typing import Any, TypeVar
+from typing import Any, Final, TypeVar
 
 T = TypeVar("T")
 
 logger = logging.getLogger(__name__)
+
+# Hosts the web dashboard treats as local-only (no auth token required).
+LOOPBACK_HOSTS: Final[frozenset[str]] = frozenset({"127.0.0.1", "localhost", "::1"})
+
+
+def is_loopback_host(host: str) -> bool:
+    """True when ``host`` is a loopback address we don't require a token for."""
+    return host.strip().lower() in LOOPBACK_HOSTS
+
+
+def web_auth_token() -> str | None:
+    """The dashboard bearer token, or ``None`` when auth is disabled."""
+    return os.getenv("SIDEKICK_WEB_AUTH_TOKEN", "").strip() or None
+
+
+def web_bind() -> tuple[str, int]:
+    """Dashboard bind ``(host, port)``. Raises ``ValueError`` on a non-integer port."""
+    return os.getenv("SIDEKICK_WEB_HOST", "127.0.0.1"), int(os.getenv("SIDEKICK_WEB_PORT", "8080"))
+
+
+def slack_configured() -> bool:
+    """True when both Slack tokens are set (the adapter will be started)."""
+    return bool(os.getenv("SLACK_BOT_TOKEN") and os.getenv("SLACK_APP_TOKEN"))
 
 
 def watch_task(task: asyncio.Task[T], name: str) -> asyncio.Task[T]:

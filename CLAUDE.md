@@ -115,6 +115,7 @@ The set `LOCAL_REMINDER_TOOLS` in `agent.py` determines routing.
 - Handlers live in `web/handlers/`. Calendar's handler module is `calendar_routes.py` (the stdlib `calendar` module would shadow it).
 - Sync provider calls (`SQLiteTaskStore`, `ChronaryProvider`) are wrapped in `web.helpers.run_sync()` so they don't block the shared event loop — same `loop.run_in_executor` pattern `MCPServer._dispatch` uses.
 - Templates are Jinja2 (`web/templates/`); htmx is loaded from CDN in `base.html`. No build step.
+- `/system` (`handlers/system.py`, server-rendered, no JS) and `/api/system` + `/api/config` show status and the full effective configuration. All data comes from `services/system.py`; the HTML dashboard, both health endpoints, and `sidekick-cli system` reuse it.
 - Dashboard is **localhost-only by default**. In Docker the container's `127.0.0.1` is not the host's — either set `SIDEKICK_WEB_ENABLED=false`, exec into the container, or override `SIDEKICK_WEB_HOST=0.0.0.0` with the security trade-off that implies.
 
 ### Runtime settings, services, `/api`, and the CLI
@@ -122,6 +123,7 @@ The set `LOCAL_REMINDER_TOOLS` in `agent.py` determines routing.
 - `runtime_config.py` layers editable overrides (`EDITABLE_KEYS`) from `runtime.json` (in `SIDEKICK_CONFIG_DIR`) over `os.environ`. Read settings through `runtime_config.get()` / `timezone_name()` — **not** `os.getenv` — or settings-page edits silently won't apply. `validate()` gates every write; `SECRET_KEYS` are redacted in `as_dict(redacted=True)`.
 - `services/` holds the framework-free business logic shared by the HTML handlers, `/api`, and the CLI. `services/settings.update()` validates a whole batch before writing, rebuilds the LLM client for LLM keys, re-applies built-in reminder jobs via `reminders.apply_builtin_settings()`, and reports `restart_required` (currently `TIMEZONE`).
 - `web/api/` is a sub-app mounted at `/api/` with a `{data, error}` envelope; the parent app's session/CSRF/auth middlewares still apply. A request with a valid `Authorization: Bearer` token skips CSRF (not an ambient credential); browser JS (`static/js/api.js`) sends `X-CSRF-Token` from the page's `csrf-token` meta tag.
+- `config_catalog.py` documents **every** env var Sidekick reads (group, label, default, secret). Editability / restart flags are derived from `runtime_config`. `tests/test_config_catalog.py` scans `src/` and fails if a new `os.getenv("X")` / `runtime_config.get("X")` isn't catalogued — add an entry when adding a setting. `runtime_config.source(key)` reports `override` / `env` / `default`. Secret redaction for the System page happens in `services/system.py` (`config_catalog.is_secret`: catalogued, `SECRET_KEYS`, or a KEY/TOKEN/SECRET/PASSWORD name) — values are never returned, not even a preview.
 - `cli/` is `sidekick-cli` — a sync httpx client over `/api`. Uses `SIDEKICK_API_TOKEN` as a bearer when set, otherwise fetches `/_csrf` first.
 
 ### Conversation history

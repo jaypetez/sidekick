@@ -33,6 +33,7 @@ from .handlers import (
     health,
     reminders,
     settings,
+    system,
     tasks,
 )
 from .handlers import (
@@ -233,6 +234,8 @@ def make_app(
     app.router.add_post(
         "/settings/personality", settings.set_personality, name="settings.personality"
     )
+
+    app.router.add_get("/system", system.index, name="system.index")
 
     # JSON API surface — same business logic via the services layer, served
     # under /api/. Handlers inside the sub-app read shared state through

@@ -46,6 +46,11 @@ CREATE INDEX IF NOT EXISTS idx_tasks_list_status
 """
 
 
+def default_db_path() -> str:
+    """Effective tasks database path (``SIDEKICK_DB_PATH`` or the default)."""
+    return _default_db_path()
+
+
 def _default_db_path() -> str:
     return os.getenv(
         "SIDEKICK_DB_PATH",

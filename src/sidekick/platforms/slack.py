@@ -83,6 +83,11 @@ class SlackPlatform(ChatPlatform):
         )
         logger.info("Slack platform started (socket mode)")
 
+    @property
+    def is_running(self) -> bool:
+        """True while the socket-mode connection task is alive."""
+        return self._app_task is not None and not self._app_task.done()
+
     async def stop(self) -> None:
         if self._socket_handler is not None:
             await self._socket_handler.close_async()  # type: ignore[no-untyped-call]
