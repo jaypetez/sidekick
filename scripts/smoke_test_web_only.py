@@ -9,6 +9,12 @@ Placeholder Chronary env vars are injected — ChronaryProvider __init__ reads
 them at construction but won't call Chronary unless you exercise calendar
 routes, so the bot starts fine.
 
+The run is isolated from your real install: every state file (DB, reminders,
+runtime.json overrides, session secret) lives in a throwaway temp directory,
+and the dashboard auth token is forced off. The bot calls ``load_dotenv()``,
+which never overrides a variable that is already set — even to "" — so the
+values below win over anything in ``.env``.
+
 Run:
     python scripts/smoke_test_web_only.py
 """
@@ -18,6 +24,7 @@ from __future__ import annotations
 import os
 import subprocess
 import sys
+import tempfile
 import time
 import urllib.error
 import urllib.request
@@ -33,6 +40,7 @@ ROUTES = [
     ("/reminders", "Reminders"),
     ("/tasks", "Tasks"),
     ("/settings", "Settings"),
+    ("/system", "System"),
 ]
 
 
@@ -43,9 +51,21 @@ def _try_get(url: str, *, timeout: float = 15.0) -> tuple[int, str]:
     except urllib.error.HTTPError as exc:
         body = exc.read(2048).decode("utf-8", errors="replace") if hasattr(exc, "read") else ""
         return exc.code, body
+    except (TimeoutError, urllib.error.URLError) as exc:
+        # Status 0 = no HTTP response at all (e.g. the Chronary stub hanging).
+        return 0, str(exc)
 
 
 def main() -> int:
+    # ignore_cleanup_errors: on Windows the bot's MCP grandchild can still hold
+    # sidekick.db open for a moment after the bot itself exits.
+    with tempfile.TemporaryDirectory(
+        prefix="sidekick-smoke-", ignore_cleanup_errors=True
+    ) as config_dir:
+        return _run(config_dir)
+
+
+def _run(config_dir: str) -> int:
     env = os.environ.copy()
     env["TELEGRAM_BOT_TOKEN"] = ""
     env["CHRONARY_API_KEY"] = "smoke-test-placeholder"
@@ -59,9 +79,18 @@ def main() -> int:
     env.pop("REMINDER_CHAT_ID", None)
     env.pop("SLACK_BOT_TOKEN", None)
     env.pop("SLACK_APP_TOKEN", None)
-    env["CONFIG_FILE"] = str(REPO_ROOT / ".smoke-config.json")
-    env["REMINDERS_FILE"] = str(REPO_ROOT / ".smoke-reminders.json")
-    env["SIDEKICK_DB_PATH"] = str(REPO_ROOT / ".smoke-sidekick.db")
+    # Unauthenticated GETs below; a token from .env would turn them into 401s.
+    env["SIDEKICK_WEB_AUTH_TOKEN"] = ""
+    # Keep the operator's runtime.json (which wins over env) and state files
+    # out of it: explicit paths also bypass paths.py's legacy ~/.config fallback.
+    env["SIDEKICK_CONFIG_DIR"] = config_dir
+    for key, name in (
+        ("CONFIG_FILE", "config.json"),
+        ("REMINDERS_FILE", "reminders.json"),
+        ("SIDEKICK_DB_PATH", "sidekick.db"),
+        ("SIDEKICK_RUNTIME_CONFIG", "runtime.json"),
+    ):
+        env[key] = os.path.join(config_dir, name)
 
     proc = subprocess.Popen(
         [sys.executable, "-m", "sidekick.bot"],

@@ -2,6 +2,53 @@
   <title>Sidekick</title>
   <desc>A friendly AI assistant character with a glowing antenna, screen face, and floating particles, with the wordmark SIDEKICK underneath.</desc>
 
+  <!--
+    Motion is plain CSS (not SMIL) so it can honour prefers-reduced-motion,
+    and the wordmark switches to a light fill under prefers-color-scheme:
+    dark. The default violet reads on both light and dark backgrounds, which
+    matters for the dashboard header: it is always dark, whatever the
+    viewer's colour scheme.
+    This file is duplicated at src/sidekick/web/static/sidekick-logo.svg;
+    tests/test_logo_assets.py keeps the two copies identical.
+  -->
+  <style>
+    .wordmark { fill: #8B5CF6; }
+    @media (prefers-color-scheme: dark) {
+      .wordmark { fill: #C4B5FD; }
+    }
+
+    .halo, .tip-glow, .tip-core, .eye, .shimmer, .hand, .particle {
+      transform-box: fill-box;
+      transform-origin: center;
+    }
+    .halo      { animation: halo 4s ease-in-out infinite; }
+    .bob       { animation: bob 4s ease-in-out infinite; }
+    .tip-glow  { animation: tip-glow 1.6s ease-in-out infinite; }
+    .tip-core  { animation: tip-core 1.6s ease-in-out infinite, tip-color 3.2s linear infinite; }
+    .shimmer   { opacity: 0; animation: shimmer 4s ease-in-out infinite; }
+    .eye       { animation: blink 6s linear infinite; }
+    .hand-l    { animation: hand-up 3s ease-in-out infinite; }
+    .hand-r    { animation: hand-down 3s ease-in-out infinite; }
+    .particle  { opacity: 0.8; animation: drift var(--dur) ease-in-out var(--delay, 0s) infinite; }
+
+    @keyframes halo      { 0%, 100% { transform: scale(1); opacity: 0.85; } 50% { transform: scale(1.18); opacity: 1; } }
+    @keyframes bob       { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-10px); } }
+    @keyframes tip-glow  { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.6); } }
+    @keyframes tip-core  { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.5); } }
+    @keyframes tip-color { 0%, 100% { fill: #FBBF24; } 50% { fill: #F472B6; } }
+    @keyframes shimmer   { 0%, 100% { opacity: 0; } 50% { opacity: 0.06; } }
+    @keyframes blink     { 0%, 40%, 44%, 92%, 100% { transform: scaleY(1); } 42%, 95% { transform: scaleY(0.07); } }
+    @keyframes hand-up   { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-10px); } }
+    @keyframes hand-down { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(10px); } }
+    @keyframes drift     { 0%, 100% { transform: translateY(0); opacity: 0; } 50% { transform: translateY(var(--dy)); opacity: 1; } }
+
+    @media (prefers-reduced-motion: reduce) {
+      .halo, .bob, .tip-glow, .tip-core, .shimmer, .eye, .hand-l, .hand-r, .particle {
+        animation: none;
+      }
+    }
+  </style>
+
   <defs>
     <!-- Body gradient -->
     <linearGradient id="body" x1="0%" y1="0%" x2="0%" y2="100%">
@@ -39,112 +86,67 @@
   </defs>
 
   <!-- Pulsing halo (lives behind everything, doesn't bob with the character) -->
-  <circle cx="300" cy="190" r="150" fill="url(#halo)">
-    <animate attributeName="r"       values="140;165;140" dur="4s" repeatCount="indefinite"/>
-    <animate attributeName="opacity" values="0.85;1;0.85" dur="4s" repeatCount="indefinite"/>
-  </circle>
+  <circle class="halo" cx="300" cy="190" r="140" fill="url(#halo)"/>
 
   <!-- ===== Character group — gentle floating bob ===== -->
   <g filter="url(#softShadow)">
-    <animateTransform attributeName="transform" attributeType="XML"
-                      type="translate" values="0 0; 0 -10; 0 0"
-                      dur="4s" repeatCount="indefinite"
-                      calcMode="spline" keySplines="0.4 0 0.6 1; 0.4 0 0.6 1" keyTimes="0;0.5;1"/>
+    <g class="bob">
+      <!-- Antenna stem -->
+      <line x1="300" y1="118" x2="300" y2="78" stroke="#8B5CF6" stroke-width="5" stroke-linecap="round"/>
 
-    <!-- Antenna stem -->
-    <line x1="300" y1="118" x2="300" y2="78" stroke="#8B5CF6" stroke-width="5" stroke-linecap="round"/>
+      <!-- Antenna tip glow halo -->
+      <circle class="tip-glow" cx="300" cy="70" r="16" fill="url(#tipGlow)"/>
+      <!-- Antenna tip core -->
+      <circle class="tip-core" cx="300" cy="70" r="5" fill="#FBBF24"/>
 
-    <!-- Antenna tip glow halo -->
-    <circle cx="300" cy="70" r="18" fill="url(#tipGlow)">
-      <animate attributeName="r" values="16;26;16" dur="1.6s" repeatCount="indefinite"/>
-    </circle>
-    <!-- Antenna tip core -->
-    <circle cx="300" cy="70" r="6" fill="#FBBF24">
-      <animate attributeName="r"    values="5;7.5;5"                 dur="1.6s" repeatCount="indefinite"/>
-      <animate attributeName="fill" values="#FBBF24;#F472B6;#FBBF24" dur="3.2s" repeatCount="indefinite"/>
-    </circle>
+      <!-- Body — rounded "AI buddy" silhouette -->
+      <rect x="206" y="125" width="188" height="148" rx="78" ry="58" fill="url(#body)"/>
 
-    <!-- Body — rounded "AI buddy" silhouette -->
-    <rect x="206" y="125" width="188" height="148" rx="78" ry="58" fill="url(#body)"/>
+      <!-- Subtle body highlight -->
+      <ellipse cx="260" cy="148" rx="40" ry="10" fill="#FFFFFF" opacity="0.18"/>
 
-    <!-- Subtle body highlight -->
-    <ellipse cx="260" cy="148" rx="40" ry="10" fill="#FFFFFF" opacity="0.18"/>
+      <!-- Screen face -->
+      <rect x="232" y="156" width="136" height="92" rx="22" ry="22" fill="url(#screen)"/>
+      <!-- Screen scanline shimmer -->
+      <rect class="shimmer" x="232" y="156" width="136" height="92" rx="22" ry="22" fill="#22D3EE"/>
 
-    <!-- Screen face -->
-    <rect x="232" y="156" width="136" height="92" rx="22" ry="22" fill="url(#screen)"/>
-    <!-- Screen scanline shimmer -->
-    <rect x="232" y="156" width="136" height="92" rx="22" ry="22" fill="#22D3EE" opacity="0">
-      <animate attributeName="opacity" values="0;0.06;0" dur="4s" repeatCount="indefinite"/>
-    </rect>
+      <!-- Eyes — cyan LCD glow with periodic blink -->
+      <g>
+        <ellipse class="eye" cx="275" cy="200" rx="10" ry="14" fill="#22D3EE"/>
+        <ellipse class="eye" cx="325" cy="200" rx="10" ry="14" fill="#22D3EE"/>
+        <!-- Eye highlights (catchlight) -->
+        <circle cx="278" cy="196" r="2.5" fill="#FFFFFF" opacity="0.9"/>
+        <circle cx="328" cy="196" r="2.5" fill="#FFFFFF" opacity="0.9"/>
+      </g>
 
-    <!-- Eyes — cyan LCD glow with periodic blink -->
-    <g>
-      <ellipse cx="275" cy="200" rx="10" ry="14" fill="#22D3EE">
-        <animate attributeName="ry"
-                 values="14;14;14;14;14;1;14;14;14;14;14;14;14;14;14;14;14;14;1;14"
-                 keyTimes="0;0.05;0.1;0.2;0.4;0.42;0.44;0.5;0.6;0.65;0.7;0.75;0.8;0.82;0.85;0.88;0.9;0.92;0.95;1"
-                 dur="6s" repeatCount="indefinite"/>
-      </ellipse>
-      <ellipse cx="325" cy="200" rx="10" ry="14" fill="#22D3EE">
-        <animate attributeName="ry"
-                 values="14;14;14;14;14;1;14;14;14;14;14;14;14;14;14;14;14;14;1;14"
-                 keyTimes="0;0.05;0.1;0.2;0.4;0.42;0.44;0.5;0.6;0.65;0.7;0.75;0.8;0.82;0.85;0.88;0.9;0.92;0.95;1"
-                 dur="6s" repeatCount="indefinite"/>
-      </ellipse>
-      <!-- Eye highlights (catchlight) -->
-      <circle cx="278" cy="196" r="2.5" fill="#FFFFFF" opacity="0.9"/>
-      <circle cx="328" cy="196" r="2.5" fill="#FFFFFF" opacity="0.9"/>
+      <!-- Smile — gentle, content -->
+      <path d="M283 225 Q300 238 317 225"
+            stroke="#22D3EE" stroke-width="3" stroke-linecap="round" fill="none"/>
+
+      <!-- Floating "hands" — small orbs the character holds at its sides -->
+      <circle class="hand hand-l" cx="178" cy="205" r="14" fill="url(#body)"/>
+      <circle class="hand hand-r" cx="422" cy="205" r="14" fill="url(#body)"/>
     </g>
-
-    <!-- Smile — gentle, content -->
-    <path d="M283 225 Q300 238 317 225"
-          stroke="#22D3EE" stroke-width="3" stroke-linecap="round" fill="none"/>
-
-    <!-- Floating "hands" — small orbs the character holds at its sides -->
-    <circle cx="178" cy="205" r="14" fill="url(#body)">
-      <animate attributeName="cy" values="205;195;205" dur="3s" repeatCount="indefinite"/>
-    </circle>
-    <circle cx="422" cy="205" r="14" fill="url(#body)">
-      <animate attributeName="cy" values="205;215;205" dur="3s" repeatCount="indefinite"/>
-    </circle>
   </g>
 
   <!-- ===== Ambient sparkle particles around the character ===== -->
   <g>
     <!-- Top-left -->
-    <circle cx="140" cy="120" r="3" fill="#A78BFA">
-      <animate attributeName="cy"      values="120;90;120"   dur="4.5s" repeatCount="indefinite"/>
-      <animate attributeName="opacity" values="0;1;0"        dur="4.5s" repeatCount="indefinite"/>
-    </circle>
+    <circle class="particle" style="--dur:4.5s; --dy:-30px" cx="140" cy="120" r="3" fill="#A78BFA"/>
     <!-- Top-right -->
-    <circle cx="465" cy="135" r="3" fill="#22D3EE">
-      <animate attributeName="cy"      values="135;100;135"  dur="3.8s" repeatCount="indefinite" begin="0.4s"/>
-      <animate attributeName="opacity" values="0;1;0"        dur="3.8s" repeatCount="indefinite" begin="0.4s"/>
-    </circle>
+    <circle class="particle" style="--dur:3.8s; --dy:-35px; --delay:0.4s" cx="465" cy="135" r="3" fill="#22D3EE"/>
     <!-- Mid-left -->
-    <circle cx="115" cy="200" r="2.5" fill="#F472B6">
-      <animate attributeName="cy"      values="200;180;200"  dur="5s"   repeatCount="indefinite" begin="1.2s"/>
-      <animate attributeName="opacity" values="0;1;0"        dur="5s"   repeatCount="indefinite" begin="1.2s"/>
-    </circle>
+    <circle class="particle" style="--dur:5s; --dy:-20px; --delay:1.2s" cx="115" cy="200" r="2.5" fill="#F472B6"/>
     <!-- Mid-right -->
-    <circle cx="495" cy="215" r="2.5" fill="#FBBF24">
-      <animate attributeName="cy"      values="215;195;215"  dur="4.2s" repeatCount="indefinite" begin="0.8s"/>
-      <animate attributeName="opacity" values="0;1;0"        dur="4.2s" repeatCount="indefinite" begin="0.8s"/>
-    </circle>
+    <circle class="particle" style="--dur:4.2s; --dy:-20px; --delay:0.8s" cx="495" cy="215" r="2.5" fill="#FBBF24"/>
     <!-- Lower-left -->
-    <circle cx="170" cy="275" r="2" fill="#A78BFA">
-      <animate attributeName="cy"      values="275;255;275"  dur="3.6s" repeatCount="indefinite" begin="1.8s"/>
-      <animate attributeName="opacity" values="0;1;0"        dur="3.6s" repeatCount="indefinite" begin="1.8s"/>
-    </circle>
+    <circle class="particle" style="--dur:3.6s; --dy:-20px; --delay:1.8s" cx="170" cy="275" r="2" fill="#A78BFA"/>
     <!-- Lower-right -->
-    <circle cx="448" cy="280" r="2" fill="#22D3EE">
-      <animate attributeName="cy"      values="280;258;280"  dur="4.8s" repeatCount="indefinite" begin="2.1s"/>
-      <animate attributeName="opacity" values="0;1;0"        dur="4.8s" repeatCount="indefinite" begin="2.1s"/>
-    </circle>
+    <circle class="particle" style="--dur:4.8s; --dy:-22px; --delay:2.1s" cx="448" cy="280" r="2" fill="#22D3EE"/>
   </g>
 
   <!-- ===== Wordmark ===== -->
-  <text x="300" y="335" text-anchor="middle"
+  <text class="wordmark" x="300" y="335" text-anchor="middle"
         font-family="'Inter', 'Segoe UI', 'Helvetica Neue', Arial, sans-serif"
-        font-size="22" font-weight="800" letter-spacing="10" fill="#1E1B4B">SIDEKICK</text>
+        font-size="22" font-weight="800" letter-spacing="10">SIDEKICK</text>
 </svg>
