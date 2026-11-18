@@ -18,12 +18,15 @@ services:
     restart: unless-stopped
     # If LLM_PROVIDER=ollama, the bot needs to reach the ollama service.
     # Override OLLAMA_BASE_URL in .env to http://ollama:11434 in that case.
+    # `ollama` only exists under the `ollama` profile, so the dependency must
+    # be optional: newer Compose releases reject a plain `depends_on` on a
+    # service that isn't in the active profiles ("depends on undefined
+    # service"). `required: false` (Compose >= 2.20) starts ollama first when
+    # its profile is on and ignores it otherwise.
     depends_on:
-      - ollama
-    # depends_on with `condition: service_started` would block on the
-    # ollama container start, but the `ollama` profile keeps that service
-    # off by default — depends_on against an unstarted service is ignored
-    # by docker compose, so this is safe.
+      ollama:
+        condition: service_started
+        required: false
 
   ollama:
     image: ollama/ollama:latest
