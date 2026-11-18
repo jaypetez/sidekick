@@ -25,6 +25,8 @@ import stat
 import time
 from pathlib import Path
 
+from ..webhooks import WEBHOOK_PATH
+
 logger = logging.getLogger(__name__)
 
 # Loopback addresses we consider "safe" for token-less operation.
@@ -56,6 +58,11 @@ _PLACEHOLDER_TOKENS = frozenset(
 # Paths that handle the login flow itself — auth_middleware lets these
 # through unconditionally so users can render the form and submit it.
 LOGIN_PATHS = frozenset({"/login", "/logout"})
+
+# Inbound webhooks authenticate by HMAC signature (checked in the handler),
+# not by session/bearer, and are sent by servers that have neither a CSRF
+# token nor our Host name. Matched exactly — never as a prefix.
+WEBHOOK_PATHS = frozenset({WEBHOOK_PATH})
 
 # Session-storage key set when a user has authenticated via the login form.
 SESSION_AUTH_KEY = "_authenticated"
@@ -161,6 +168,11 @@ def extract_bearer(authorization_header: str | None) -> str | None:
     if len(parts) != 2 or parts[0].lower() != "bearer":
         return None
     return parts[1].strip() or None
+
+
+def is_webhook_path(path: str) -> bool:
+    """True for signature-authenticated webhook endpoints."""
+    return path in WEBHOOK_PATHS
 
 
 def is_login_path(path: str) -> bool:

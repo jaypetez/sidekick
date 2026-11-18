@@ -22,6 +22,7 @@ from aiohttp_session.cookie_storage import EncryptedCookieStorage
 
 from ..calendar.chronary import ChronaryProvider
 from ..storage.sqlite_tasks import SQLiteTaskStore
+from ..webhooks import WEBHOOK_PATH, DeliveryLog
 from . import csrf as csrf_mod
 from .api import make_api_app
 from .auth import SESSION_MAX_AGE_SECONDS, get_auth_token, load_or_create_session_secret
@@ -36,6 +37,9 @@ from .handlers import (
 )
 from .handlers import (
     login as login_handler,
+)
+from .handlers import (
+    webhooks as webhook_handlers,
 )
 from .middleware import (
     auth_middleware,
@@ -126,6 +130,7 @@ def make_app(
     bot_data: dict[str, Any],
     task_store: SQLiteTaskStore | None = None,
     calendar_provider: ChronaryProvider | None = None,
+    webhook_log: DeliveryLog | None = None,
 ) -> web.Application:
     """Build a configured aiohttp Application for the dashboard.
 
@@ -156,6 +161,9 @@ def make_app(
     # reads CHRONARY_* env vars and would fail in tests without them. The
     # caller (production: bot.py; tests: fixture) passes one in explicitly.
     app["calendar"] = calendar_provider
+    # Created on first webhook delivery unless injected (tests pass an
+    # in-memory one); see handlers/webhooks.py.
+    app[webhook_handlers.WEBHOOK_LOG_KEY] = webhook_log
 
     templates_dir = Path(__file__).parent / "templates"
     jinja_env = aiohttp_jinja2.setup(
@@ -184,6 +192,8 @@ def make_app(
     app.router.add_get("/login", login_handler.index, name="login.index")
     app.router.add_post("/login", login_handler.submit, name="login.submit")
     app.router.add_post("/logout", login_handler.logout, name="login.logout")
+
+    app.router.add_post(WEBHOOK_PATH, webhook_handlers.chronary, name="webhooks.chronary")
 
     app.router.add_get("/chat", chat.index, name="chat.index")
     app.router.add_post("/chat", chat.send, name="chat.send")

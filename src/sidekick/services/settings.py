@@ -40,7 +40,9 @@ def snapshot(*, redacted: bool = True) -> dict[str, Any]:
 
 
 # Keys the built-in reminder jobs read; saving one re-applies them live.
-_REMINDER_KEYS = frozenset({"MORNING_REMINDER_TIME", "PRE_EVENT_REMINDER_MINUTES"})
+_REMINDER_KEYS = frozenset(
+    {"MORNING_REMINDER_TIME", "PRE_EVENT_REMINDER_MINUTES", "PRE_EVENT_SOURCE"}
+)
 
 
 async def update(

@@ -44,8 +44,14 @@ EDITABLE_KEYS: Final[frozenset[str]] = frozenset(
         "TIMEZONE",
         "MORNING_REMINDER_TIME",
         "PRE_EVENT_REMINDER_MINUTES",
+        "PRE_EVENT_SOURCE",
     }
 )
+
+# Where pre-event reminders come from: "poll" (check the calendar every 5
+# minutes; works anywhere) or "webhook" (Chronary pushes event.reminder to
+# /webhooks/chronary; needs a public HTTPS URL). Unset means "poll".
+PRE_EVENT_SOURCES: Final[frozenset[str]] = frozenset({"poll", "webhook"})
 
 SECRET_KEYS: Final[frozenset[str]] = frozenset(
     {
@@ -54,6 +60,7 @@ SECRET_KEYS: Final[frozenset[str]] = frozenset(
         "CHRONARY_API_KEY",
         "SLACK_BOT_TOKEN",
         "SLACK_APP_TOKEN",
+        "CHRONARY_WEBHOOK_SECRET",
     }
 )
 
@@ -132,6 +139,12 @@ def timezone_name() -> str:
     return get("TIMEZONE") or DEFAULT_TIMEZONE
 
 
+def pre_event_source() -> str:
+    """Effective pre-event reminder source: ``"poll"`` (default) or ``"webhook"``."""
+    value = (get("PRE_EVENT_SOURCE") or "poll").strip().lower()
+    return value if value in PRE_EVENT_SOURCES else "poll"
+
+
 def validate(key: str, value: str) -> None:
     """Raise :class:`ConfigError` if ``value`` is not acceptable for ``key``.
 
@@ -159,6 +172,8 @@ def validate(key: str, value: str) -> None:
             raise ConfigError(f"{key} must be an integer") from exc
     elif key == "LLM_PROVIDER" and value.lower() not in {"anthropic", "ollama"}:
         raise ConfigError("LLM_PROVIDER must be 'anthropic' or 'ollama'")
+    elif key == "PRE_EVENT_SOURCE" and value.lower() not in PRE_EVENT_SOURCES:
+        raise ConfigError("PRE_EVENT_SOURCE must be 'poll' or 'webhook'")
 
 
 def set_value(key: str, value: str, *, persist: bool = True) -> None:
