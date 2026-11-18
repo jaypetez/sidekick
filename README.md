@@ -278,14 +278,15 @@ This needs a **public HTTPS URL** that reaches the dashboard's `/webhooks/chrona
 
 ```bash
 sidekick-webhook register --url https://hooks.example.com/webhooks/chronary
-# Paste the printed CHRONARY_WEBHOOK_ID / CHRONARY_WEBHOOK_SECRET into .env, restart, then
+# The signing secret is saved (0600) to $SIDEKICK_CONFIG_DIR/chronary_webhook.secret,
+# never printed. Paste the printed CHRONARY_WEBHOOK_ID into .env, restart, then
 # set "Pre-event reminder source" to "Chronary webhooks" on the settings page
 # (or PRE_EVENT_SOURCE=webhook in .env).
 sidekick-webhook test     # sends a signed test reminder through the whole path
 sidekick-webhook status   # active? deactivated reason? recent deliveries
 ```
 
-`register` also sets the calendar's default reminder to `PRE_EVENT_REMINDER_MINUTES`. The route returns 404 until `CHRONARY_WEBHOOK_SECRET` is set. `GET /api/health` reports when the last delivery arrived, so you can tell if the tunnel goes down. To go back to polling, run `sidekick-webhook delete` and set the source back to polling.
+`register` also sets the calendar's default reminder to `PRE_EVENT_REMINDER_MINUTES`. The route returns 404 until a signing secret is configured (that file, or `CHRONARY_WEBHOOK_SECRET` to override it). `GET /api/health` reports when the last delivery arrived, so you can tell if the tunnel goes down. To go back to polling, run `sidekick-webhook delete` and set the source back to polling.
 
 ---
 

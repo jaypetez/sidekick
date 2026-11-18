@@ -13,8 +13,10 @@ URL = "https://hooks.example.com/webhooks/chronary"
 
 
 @pytest.fixture
-def env(monkeypatch):
+def env(monkeypatch, tmp_path):
     monkeypatch.setattr(webhook_cli, "load_dotenv", lambda: None)
+    monkeypatch.setenv("SIDEKICK_CONFIG_DIR", str(tmp_path))
+    monkeypatch.delenv("CHRONARY_WEBHOOK_SECRET", raising=False)
     monkeypatch.setenv("CHRONARY_API_KEY", "chr_sk_test")
     monkeypatch.setenv("CHRONARY_CALENDAR_ID", "cal_1")
     monkeypatch.setenv("PRE_EVENT_REMINDER_MINUTES", "15")
@@ -35,7 +37,12 @@ def test_register_creates_subscription_and_sets_calendar_default(env, capsys):
     client.calendars.update.assert_called_once_with("cal_1", default_reminders=[15])
     out = capsys.readouterr().out
     assert "CHRONARY_WEBHOOK_ID=wh_1" in out
-    assert "CHRONARY_WEBHOOK_SECRET=whsec_abc" in out
+    # The secret is stored owner-only, never printed (scrollback / CI logs).
+    assert "whsec_abc" not in out
+    from sidekick.webhooks import load_webhook_secret, secret_file_path
+
+    assert secret_file_path().read_text() == "whsec_abc"
+    assert load_webhook_secret() == "whsec_abc"
 
 
 @pytest.mark.parametrize("url", ["http://hooks.example.com/webhooks/chronary", "not a url"])
@@ -90,9 +97,14 @@ def test_test_polls_until_delivered(env, monkeypatch, capsys):
 
 def test_delete(env, monkeypatch):
     monkeypatch.setenv("CHRONARY_WEBHOOK_ID", "wh_1")
+    from sidekick.webhooks import load_webhook_secret, secret_file_path
+
+    secret_file_path().write_text("whsec_old")
     client = MagicMock()
     assert _run(["delete"], client) == 0
     client.webhooks.delete.assert_called_once_with("wh_1")
+    assert not secret_file_path().exists()
+    assert load_webhook_secret() is None
 
 
 def test_missing_api_key_exits(env, monkeypatch):

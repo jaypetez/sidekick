@@ -3,7 +3,8 @@
 Exempt from session/bearer auth, CSRF and the Host check (see
 ``web/auth.py::WEBHOOK_PATHS``); authenticity comes from the HMAC
 signature, verified here before anything else is trusted. The route
-answers 404 unless ``CHRONARY_WEBHOOK_SECRET`` is configured, so it simply
+answers 404 unless a signing secret is configured (``CHRONARY_WEBHOOK_SECRET``
+or the file ``sidekick-webhook register`` writes), so it simply
 doesn't exist on installs that haven't opted in.
 
 Delivery to Telegram happens in a background task so we can acknowledge
@@ -31,6 +32,7 @@ from ...webhooks import (
     InvalidPayload,
     ReminderNotice,
     format_reminder,
+    load_webhook_secret,
     parse_reminder,
 )
 
@@ -50,7 +52,7 @@ def _delivery_log(app: web.Application) -> DeliveryLog:
 
 
 async def chronary(request: web.Request) -> web.StreamResponse:
-    secret = os.getenv("CHRONARY_WEBHOOK_SECRET", "").strip()
+    secret = load_webhook_secret()
     if not secret:
         raise web.HTTPNotFound()
 

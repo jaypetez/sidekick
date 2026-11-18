@@ -168,3 +168,19 @@ async def test_health_reports_last_delivery(hook_client):
     await _post(hook_client)
     after = await (await hook_client.get("/api/health")).json()
     assert after["data"]["webhook"]["last_received_at"] is not None
+
+
+@pytest.mark.asyncio
+async def test_secret_file_fallback(aiohttp_client, bot_data, bot, monkeypatch, tmp_path):
+    """sidekick-webhook register stores the secret in a 0600 file; the route
+    must accept deliveries with only that file configured."""
+    monkeypatch.delenv("CHRONARY_WEBHOOK_SECRET", raising=False)
+    monkeypatch.setenv("SIDEKICK_CONFIG_DIR", str(tmp_path))
+    monkeypatch.setenv("CHRONARY_CALENDAR_ID", CALENDAR_ID)
+    monkeypatch.setenv("REMINDER_CHAT_ID", "-100123")
+    (tmp_path / "chronary_webhook.secret").write_text(SECRET + "\n")
+    client = await _make_client(aiohttp_client, bot_data)
+    resp = await _post(client)
+    await _drain(client)
+    assert resp.status == 200
+    bot.send_message.assert_awaited_once()

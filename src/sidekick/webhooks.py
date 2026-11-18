@@ -186,6 +186,28 @@ def format_reminder(
     return v2, plain
 
 
+def secret_file_path() -> Path:
+    """Where ``sidekick-webhook register`` stores the signing secret (0600)."""
+    config_dir = os.path.expanduser(os.getenv("SIDEKICK_CONFIG_DIR", "~/.config/sidekick"))
+    return Path(config_dir) / "chronary_webhook.secret"
+
+
+def load_webhook_secret() -> str | None:
+    """Signing secret: ``CHRONARY_WEBHOOK_SECRET`` env, else the secret file.
+
+    The CLI writes the file instead of printing the secret, so it never lands
+    in terminal scrollback or captured logs.
+    """
+    env_value = os.getenv("CHRONARY_WEBHOOK_SECRET", "").strip()
+    if env_value:
+        return env_value
+    try:
+        file_value = secret_file_path().read_text(encoding="utf-8").strip()
+    except OSError:
+        return None
+    return file_value or None
+
+
 def _default_db_path() -> str:
     return os.getenv("SIDEKICK_DB_PATH", os.path.expanduser("~/.config/sidekick/sidekick.db"))
 

@@ -4,7 +4,8 @@ Talks to Chronary directly (not to the running bot). Typical flow once the
 dashboard is reachable at a public HTTPS URL (tunnel / reverse proxy)::
 
     sidekick-webhook register --url https://hooks.example.com/webhooks/chronary
-    # paste CHRONARY_WEBHOOK_ID / CHRONARY_WEBHOOK_SECRET into .env, restart,
+    # the signing secret is saved to $SIDEKICK_CONFIG_DIR/chronary_webhook.secret
+    # (0600) — never printed. Paste CHRONARY_WEBHOOK_ID into .env, restart,
     # then set PRE_EVENT_SOURCE=webhook (settings page or .env)
     sidekick-webhook test
     sidekick-webhook status
@@ -28,7 +29,8 @@ from urllib.parse import urlparse
 from dotenv import load_dotenv
 
 from . import runtime_config
-from .webhooks import REMINDER_EVENT_TYPE, WEBHOOK_PATH
+from .web.auth import write_private_file
+from .webhooks import REMINDER_EVENT_TYPE, WEBHOOK_PATH, secret_file_path
 
 ClientFactory = Callable[[str], Any]
 
@@ -82,11 +84,18 @@ def cmd_register(client: Any, args: argparse.Namespace) -> int:
         client.calendars.update(calendar_id, default_reminders=[minutes])
         print(f"Calendar {calendar_id}: default reminder set to {minutes} minutes.")
 
+    # Chronary returns the signing secret exactly once. Store it owner-only
+    # rather than printing it, so it never ends up in scrollback or logs;
+    # the server reads this file when CHRONARY_WEBHOOK_SECRET is unset.
+    secret_path = secret_file_path()
+    secret_path.parent.mkdir(parents=True, exist_ok=True)
+    write_private_file(secret_path, str(secret).encode("utf-8"))
+
     print(f"Registered webhook {webhook_id} -> {url}")
+    print(f"Signing secret saved to {secret_path} (mode 0600).")
     print()
-    print("Add these to your .env (the secret is shown only once):")
+    print("Add this to your .env:")
     print(f"  CHRONARY_WEBHOOK_ID={webhook_id}")
-    print(f"  CHRONARY_WEBHOOK_SECRET={secret}")
     print()
     print("Then restart Sidekick and set PRE_EVENT_SOURCE=webhook (settings page or .env).")
     return 0
@@ -138,9 +147,10 @@ def cmd_test(
 def cmd_delete(client: Any, _args: argparse.Namespace) -> int:
     webhook_id = _require_env("CHRONARY_WEBHOOK_ID")
     client.webhooks.delete(webhook_id)
-    print(f"Deleted webhook {webhook_id}.")
-    print("Remove CHRONARY_WEBHOOK_ID / CHRONARY_WEBHOOK_SECRET from .env and set")
-    print("PRE_EVENT_SOURCE=poll so the 5-minute check takes over again.")
+    secret_file_path().unlink(missing_ok=True)
+    print(f"Deleted webhook {webhook_id} and its stored signing secret.")
+    print("Remove CHRONARY_WEBHOOK_ID (and CHRONARY_WEBHOOK_SECRET, if you set it) from .env")
+    print("and set PRE_EVENT_SOURCE=poll so the 5-minute check takes over again.")
     return 0
 
 

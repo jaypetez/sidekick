@@ -104,7 +104,7 @@ The set `LOCAL_REMINDER_TOOLS` in `agent.py` determines routing.
 
 ### Chronary webhooks (`webhooks.py`, `web/handlers/webhooks.py`, `webhook_cli.py`)
 
-- `POST /webhooks/chronary` receives `event.reminder` pushes. It is in `web/auth.py::WEBHOOK_PATHS` (exact match), so it skips session/bearer auth, CSRF and the Host check — the HMAC signature (`chronary.webhook.verify_signature`, 300 s tolerance) is the only authentication. Returns 404 unless `CHRONARY_WEBHOOK_SECRET` is set.
+- `POST /webhooks/chronary` receives `event.reminder` pushes. It is in `web/auth.py::WEBHOOK_PATHS` (exact match), so it skips session/bearer auth, CSRF and the Host check — the HMAC signature (`chronary.webhook.verify_signature`, 300 s tolerance) is the only authentication. Returns 404 unless a secret is configured: `webhooks.load_webhook_secret()` reads `CHRONARY_WEBHOOK_SECRET`, else `$SIDEKICK_CONFIG_DIR/chronary_webhook.secret` (written 0600 by `register` — the CLI never prints the secret).
 - Flow: verify → ignore other event types / other calendars (subscriptions are org-wide) → `DeliveryLog` (SQLite `webhook_deliveries`, keyed by `X-Delivery-Id`) drops retries → ack 200 → deliver to Telegram in a tracked background task.
 - `sidekick-webhook register|status|test|delete` manages the subscription with the Chronary SDK directly and sets the calendar's `default_reminders`. Chronary rejects non-public URLs, so live testing needs a tunnel.
 - Tests sign deliveries with `tests/webhook_helpers.py::signed()` (parity with the SDK signer is asserted).
@@ -158,7 +158,8 @@ Per-chat history in `agent.py` (`conversation_history` dict). Keys are `int` for
 | `SIDEKICK_API_URL` | `http://127.0.0.1:$SIDEKICK_WEB_PORT` | No (`sidekick-cli` target) |
 | `SIDEKICK_API_TOKEN` | falls back to `SIDEKICK_WEB_AUTH_TOKEN` | No (`sidekick-cli` bearer token) |
 | `PRE_EVENT_SOURCE` | `poll` | No (`poll` \| `webhook`; editable in settings) |
-| `CHRONARY_WEBHOOK_ID`, `CHRONARY_WEBHOOK_SECRET` | — | Only for push reminders (printed by `sidekick-webhook register`) |
+| `CHRONARY_WEBHOOK_ID` | — | Only for push reminders (printed by `sidekick-webhook register`) |
+| `CHRONARY_WEBHOOK_SECRET` | — | No (overrides the secret file `register` writes) |
 
 ## Testing
 

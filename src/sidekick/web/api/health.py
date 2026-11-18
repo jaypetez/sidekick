@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-import os
 from typing import Any
 
 from aiohttp import web
 
 from ... import runtime_config
 from ...util import run_sync
+from ...webhooks import load_webhook_secret
 from ..handlers.webhooks import WEBHOOK_LOG_KEY
 from .envelope import ok
 
@@ -34,7 +34,7 @@ async def health(request: web.Request) -> web.Response:
         # A webhook-mode install that never hears from Chronary (tunnel down,
         # endpoint deactivated) would otherwise fail silently.
         "webhook": {
-            "configured": bool(os.getenv("CHRONARY_WEBHOOK_SECRET", "").strip()),
+            "configured": load_webhook_secret() is not None,
             "pre_event_source": runtime_config.pre_event_source(),
             "last_received_at": last_received.isoformat() if last_received else None,
         },
