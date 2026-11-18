@@ -203,6 +203,16 @@ docker compose --profile ollama exec ollama ollama pull qwen2.5:14b
 
 The compose file needs **Docker Compose v2.20 or newer** (it uses an optional `depends_on`).
 
+**Pre-built image.** Every release is published to `ghcr.io/jaypetez/sidekick` for **amd64 and arm64** (so a Raspberry Pi 4/5 on a 64-bit OS works), tagged `latest`, `X.Y` and `X.Y.Z`. To use it instead of building locally, point the service at it in a `docker-compose.override.yml`:
+
+```yaml
+services:
+  sidekick:
+    image: ghcr.io/jaypetez/sidekick:0.2   # or :latest
+```
+
+Then run `docker compose pull sidekick && docker compose up -d`. A published image already reports its real version in `/version` and on the dashboard. A local build reports `0.0.0` unless you set `SIDEKICK_VERSION` (see the comment in `docker-compose.yml`).
+
 ### Option B — bare metal (Python 3.11+)
 
 ```bash
