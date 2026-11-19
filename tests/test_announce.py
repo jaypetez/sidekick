@@ -136,13 +136,38 @@ async def test_github_failure_still_announces_version(_config_dir):
     assert "releases/tag/v0.2.2" in text
 
 
+@pytest.fixture
+def _no_sleep(monkeypatch):
+    sleeps: list[float] = []
+
+    async def fake_sleep(seconds):
+        sleeps.append(seconds)
+
+    monkeypatch.setattr(announce.asyncio, "sleep", fake_sleep)
+    return sleeps
+
+
 @pytest.mark.asyncio
-async def test_failed_send_does_not_record_so_it_retries(_config_dir):
+async def test_transient_send_failure_is_retried_in_process(_config_dir, _no_sleep):
+    """Telegram timing out right after a deploy must not lose the notice."""
+    announce.write_last_announced("0.2.0")
+    bot = _bot()
+    bot.send_message.side_effect = [RuntimeError("timed out"), RuntimeError("timed out"), None]
+    async with _github([]) as client:
+        assert await announce.announce_if_updated(bot, -100, current="0.2.2", client=client)
+    assert bot.send_message.await_count == 3
+    assert _no_sleep == [30, 60]
+    assert announce.read_last_announced() == "0.2.2"
+
+
+@pytest.mark.asyncio
+async def test_failed_send_does_not_record_so_it_retries(_config_dir, _no_sleep):
     announce.write_last_announced("0.2.0")
     bot = _bot()
     bot.send_message.side_effect = RuntimeError("telegram down")
     async with _github([]) as client:
         assert not await announce.announce_if_updated(bot, -100, current="0.2.2", client=client)
+    assert bot.send_message.await_count == len(announce.SEND_RETRY_DELAYS_SECONDS) + 1
     assert announce.read_last_announced() == "0.2.0"
 
 

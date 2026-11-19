@@ -200,7 +200,8 @@ def test_main_builds_application_and_starts_polling(monkeypatch):
 
     fake_builder.token.assert_called_once_with("test-token-not-real")
     fake_app.add_handler.assert_called()  # CommandHandler + MessageHandler entries
-    fake_app.run_polling.assert_called_once_with(drop_pending_updates=True)
+    # bootstrap_retries=-1: a Telegram blip at startup must not crash-loop the bot.
+    fake_app.run_polling.assert_called_once_with(drop_pending_updates=True, bootstrap_retries=-1)
 
 
 @pytest.mark.asyncio
