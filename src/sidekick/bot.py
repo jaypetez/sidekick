@@ -40,7 +40,7 @@ from telegram.ext import (
 
 load_dotenv()
 
-from . import __version__, runtime_config  # noqa: E402
+from . import __version__, announce, runtime_config  # noqa: E402
 from .agent import PERSONALITY_PRESETS, SidekickAgent  # noqa: E402
 from .allowlist import (  # noqa: E402
     DENIED_MESSAGE,
@@ -384,6 +384,13 @@ async def _bootstrap_services(bot_data: dict[str, Any], bot: Bot | None) -> None
         bot_data["web_task"] = web_task
         logger.info("Web dashboard enabled")
 
+    if bot is not None and reminder_chat_id:
+        # Background so a slow GitHub call never delays startup.
+        bot_data["announce_task"] = watch_task(
+            asyncio.create_task(announce.announce_if_updated(bot, int(reminder_chat_id))),
+            "update-announcement",
+        )
+
     logger.info("Sidekick is ready!")
 
 
@@ -399,6 +406,10 @@ async def _shutdown_services(bot_data: dict[str, Any]) -> None:
             await slack_platform.stop()
         except Exception:
             logger.exception("Error stopping Slack platform")
+
+    announce_task = bot_data.get("announce_task")
+    if announce_task is not None and not announce_task.done():
+        announce_task.cancel()
 
     web_task = bot_data.get("web_task")
     if web_task is not None and not web_task.done():

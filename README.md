@@ -327,6 +327,8 @@ You can run Sidekick in a group instead of (or as well as) a 1:1 DM, which is ha
 
 Morning summaries and pre-event alerts need a destination chat. Send `/get_id` to the bot in the chat you want them in, set `REMINDER_CHAT_ID` to the value it prints, and restart. Leave it blank to turn reminders off.
 
+**Update announcements.** After you deploy a new version, Sidekick posts to that same chat, once, which version it's now on and what changed since the version it last announced. Features and fixes are listed by name; dependency, docs and CI changes are summarized as a count. The change list comes from GitHub's public compare API, so the bot makes one outbound request per upgrade (no data about you is sent). If GitHub can't be reached, it announces just the version. A plain restart stays quiet. Turn it off with `SIDEKICK_ANNOUNCE_UPDATES=false`, and point it at a fork with `SIDEKICK_UPDATE_REPO=owner/repo`. Local builds need `SIDEKICK_VERSION` set (see *Pre-built image* above) so there's a real version to compare.
+
 ### Push reminders from Chronary (optional)
 
 By default Sidekick checks the calendar every 5 minutes for events starting within `PRE_EVENT_REMINDER_MINUTES`. Chronary can instead **push** a signed `event.reminder` webhook at exactly the right time, so there's no polling lag, no midnight blind spot, and no repeats after a restart.
