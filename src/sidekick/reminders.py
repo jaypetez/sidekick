@@ -30,7 +30,7 @@ from apscheduler.triggers.interval import IntervalTrigger
 from mcp import ClientSession
 from telegram import Bot
 
-from . import paths, runtime_config
+from . import paths, runtime_config, timefmt
 from .telegram_format import escape_v2, send_markdown_v2, send_safe
 
 if TYPE_CHECKING:
@@ -628,7 +628,7 @@ async def send_morning_summary(bot: Bot, mcp_session: ClientSession, chat_id: st
     else:
         lines = [f"Good morning! Here's what's on the calendar today ({today}):\n"]
         for e in events:
-            start = _format_time(e.get("start", ""))
+            start = "all day" if e.get("all_day") else _format_time(e.get("start", ""), tz)
             lines.append(f"• {e.get('summary') or '(untitled)'} — {start}")
         text = "\n".join(lines)
 
@@ -721,15 +721,15 @@ def _events_from_tool_result(content: list[Any]) -> list[dict[str, Any]]:
     raise ValueError(f"list_events returned {type(parsed).__name__}, expected a list")
 
 
-def _format_time(iso_str: str) -> str:
-    """Format an ISO datetime string to a human-readable time."""
+def _format_time(iso_str: str, tz_name: str | None = None) -> str:
+    """Format an ISO datetime as a wall-clock time in the user's timezone.
+
+    Always converts: Chronary times are UTC, and printing the UTC clock showed
+    a 6:40 PM Pacific event as "2:40 AM".
+    """
     if not iso_str:
         return "unknown time"
     if "T" not in iso_str:
         return iso_str  # all-day event, return date as-is
-    try:
-        dt = datetime.fromisoformat(iso_str)
-        # %-I (no leading zero) is GNU-only; lstrip handles Windows portability.
-        return dt.strftime("%I:%M %p").lstrip("0")
-    except ValueError:
-        return iso_str
+    local = timefmt.to_local(iso_str, tz_name or runtime_config.timezone_name())
+    return timefmt.clock(local) if local is not None else iso_str

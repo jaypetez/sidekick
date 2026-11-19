@@ -138,6 +138,37 @@ async def test_send_morning_summary_with_events_lists_them():
 
 
 @pytest.mark.asyncio
+async def test_send_morning_summary_shows_local_time_for_utc_events(monkeypatch):
+    """Regression: a 6:40 PM Pacific game arrived as 02:40 UTC and the summary
+    said "2:40 AM". Times must be shown in the configured timezone."""
+    monkeypatch.setenv("TIMEZONE", "America/Los_Angeles")
+    bot = MagicMock()
+    bot.send_message = AsyncMock()
+    session = MagicMock()
+    payload = json.dumps(
+        [
+            {"summary": "Kraken game", "start": "2026-11-20T02:40:00Z"},
+            {"summary": "Birthday", "start": "2026-11-19", "all_day": True},
+        ]
+    )
+    session.call_tool = AsyncMock(
+        return_value=SimpleNamespace(content=[SimpleNamespace(text=payload)])
+    )
+    await reminders.send_morning_summary(bot, session, "-100123")
+    text = bot.send_message.await_args.kwargs["text"]
+    assert "Kraken game — 6:40 PM" in text
+    assert "2:40 AM" not in text
+    assert "Birthday — all day" in text
+
+
+def test_format_time_converts_to_configured_timezone():
+    assert reminders._format_time("2026-11-20T02:40:00Z", "America/Los_Angeles") == "6:40 PM"
+    assert reminders._format_time("2026-11-19T18:40:00-08:00", "America/New_York") == "9:40 PM"
+    assert reminders._format_time("2026-11-19", "America/Los_Angeles") == "2026-11-19"
+    assert reminders._format_time("", "America/Los_Angeles") == "unknown time"
+
+
+@pytest.mark.asyncio
 async def test_send_morning_summary_swallows_mcp_failure():
     bot = MagicMock()
     bot.send_message = AsyncMock()

@@ -21,7 +21,7 @@ from datetime import UTC, datetime
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from .. import runtime_config
+from .. import runtime_config, timefmt
 from .base import CalendarProvider
 
 # list_events: default and hard cap on events returned, and the page size
@@ -116,7 +116,7 @@ class ChronaryProvider(CalendarProvider):
             total = _attr(result, "total")
             if not page or not isinstance(total, int) or len(events) >= total:
                 break
-        return [_event_to_dict(e) for e in events[:max_results]]
+        return [_event_to_dict(e, self.timezone) for e in events[:max_results]]
 
     def create_event(self, args: dict[str, Any]) -> dict[str, Any]:
         # Chronary's API rejects offset and naive datetime forms — normalize
@@ -175,7 +175,7 @@ class ChronaryProvider(CalendarProvider):
         updated = self.client.events.update(
             calendar_id=self.calendar_id, event_id=event_id, **kwargs
         )
-        return _event_to_dict(updated)
+        return _event_to_dict(updated, self.timezone)
 
     def delete_event(self, args: dict[str, Any]) -> dict[str, Any]:
         event_id = args["event_id"]
@@ -207,22 +207,50 @@ def _iso_utc(value: Any) -> Any:
     return value
 
 
-def _event_to_dict(event: Any) -> dict[str, Any]:
+def _iso_local(value: Any, tz_name: str) -> Any:
+    """Render a timed event's start/end in the user's timezone.
+
+    Chronary returns UTC. Every consumer of these dicts (the LLM, the
+    morning summary, the dashboard, the CLI) shows times to a person, and a
+    raw UTC clock reads as the wrong time: a 6:40 PM Pacific game came out
+    as "2:40 AM". Emitting ``2026-11-19T18:40:00-08:00`` keeps the instant
+    exact while making the wall-clock part correct.
+    """
+    if isinstance(value, str) and "T" in value:
+        try:
+            value = datetime.fromisoformat(value)
+        except ValueError:
+            return value
+    if not isinstance(value, datetime):
+        return _iso_utc(value)
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=UTC)  # Chronary's clock is UTC
+    local = timefmt.to_local(value, tz_name)
+    if local is None:
+        return _iso_utc(value)
+    return local.isoformat(timespec="seconds")
+
+
+def _event_to_dict(event: Any, tz_name: str) -> dict[str, Any]:
     metadata = _attr(event, "metadata") or {}
     if not isinstance(metadata, dict):
         metadata = {}
+    all_day = bool(_attr(event, "all_day", False))
+    # All-day events are dates, not instants: shifting their midnight into
+    # another zone would move them to the previous day.
+    render = _iso_utc if all_day else (lambda v: _iso_local(v, tz_name))
     return {
         "id": _attr(event, "id"),
         "summary": _attr(event, "title", "(no title)"),
-        "start": _iso_utc(_attr(event, "start_time")),
-        "end": _iso_utc(_attr(event, "end_time")),
+        "start": render(_attr(event, "start_time")),
+        "end": render(_attr(event, "end_time")),
         "description": _attr(event, "description", ""),
         "location": metadata.get("location", ""),
         "attendees": metadata.get("attendees", []),
         # Lets the LLM tell holds/cancellations and recurring instances apart
         # from ordinary confirmed events, and render all-day events as such.
         "status": _attr(event, "status", "confirmed"),
-        "all_day": bool(_attr(event, "all_day", False)),
+        "all_day": all_day,
         "recurring_event_id": _attr(event, "recurring_event_id"),
     }
 

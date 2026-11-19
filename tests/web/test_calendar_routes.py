@@ -174,3 +174,43 @@ async def test_delete_502s_when_provider_fails(cal_client, calendar_provider):
     calendar_provider.delete_event.side_effect = RuntimeError("nope")
     resp = await cal_client.post("/events/evt_1/delete", allow_redirects=False)
     assert resp.status == 502
+
+
+@pytest.mark.asyncio
+async def test_index_shows_times_in_configured_timezone(cal_client, calendar_provider, monkeypatch):
+    """The table shows local wall-clock times, not raw UTC strings."""
+    monkeypatch.setenv("TIMEZONE", "America/Los_Angeles")
+    calendar_provider.list_events.return_value = [
+        {
+            "id": "evt_k",
+            "summary": "Kraken vs Canucks",
+            "start": "2026-11-20T02:40:00Z",
+            "end": "2026-11-20T05:40:00Z",
+            "location": "",
+        }
+    ]
+    body = await (await cal_client.get("/events")).text()
+    assert "Thu Nov 19, 6:40 PM - 9:40 PM" in body
+    assert "02:40:00Z" not in body
+    assert "America/Los_Angeles" in body
+
+
+@pytest.mark.asyncio
+async def test_index_window_starts_on_users_today(cal_client, calendar_provider, monkeypatch):
+    """At 8 PM Pacific it's already tomorrow in UTC; the window must still
+    start on the user's date."""
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    monkeypatch.setenv("TIMEZONE", "America/Los_Angeles")
+    fixed = datetime(2026, 11, 20, 4, 0, tzinfo=ZoneInfo("UTC"))  # 8 PM PT on Nov 19
+
+    class _FixedDatetime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return fixed.astimezone(tz) if tz else fixed.replace(tzinfo=None)
+
+    monkeypatch.setattr("sidekick.web.handlers.calendar_routes.datetime", _FixedDatetime)
+    await cal_client.get("/events?days=1")
+    args = calendar_provider.list_events.call_args.args[0]
+    assert args["start_date"] == "2026-11-19"
