@@ -14,6 +14,7 @@ next start, and a plain restart (same version) stays quiet.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
 from dataclasses import dataclass, field
@@ -30,6 +31,10 @@ logger = logging.getLogger(__name__)
 STATE_FILENAME = "announced_version"
 DEFAULT_REPO = "jaypetez/sidekick"
 COMPARE_TIMEOUT_SECONDS = 10.0
+# Waits between send attempts (about 35 minutes in total). Telegram can be
+# briefly unreachable right after a deploy; without retries the notice would
+# only go out on the *next* restart, which may never come.
+SEND_RETRY_DELAYS_SECONDS = (30, 60, 120, 300, 600, 900)
 MAX_LISTED_CHANGES = 12
 
 # Conventional-commit types worth calling out; the rest are summarized as a count.
@@ -166,11 +171,19 @@ async def announce_if_updated(
         changes = await fetch_changes(base, head, client=client)
 
     text = build_message(current, previous, changes)
-    try:
-        await bot.send_message(chat_id=chat_id, text=text, disable_web_page_preview=True)
-    except Exception:
-        logger.exception("Failed to send the update announcement; will retry next start")
-        return False
+    delays = (*SEND_RETRY_DELAYS_SECONDS, None)
+    for attempt, delay in enumerate(delays, start=1):
+        try:
+            await bot.send_message(chat_id=chat_id, text=text, disable_web_page_preview=True)
+            break
+        except Exception as exc:
+            if delay is None:
+                logger.exception("Giving up on the update announcement; will retry next start")
+                return False
+            logger.warning(
+                "Update announcement attempt %d failed (%s); retrying in %ds", attempt, exc, delay
+            )
+            await asyncio.sleep(delay)
     write_last_announced(current)
     logger.info("Announced version %s (previous %s)", current, previous)
     return True

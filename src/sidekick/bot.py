@@ -603,7 +603,11 @@ def main() -> None:
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
     logger.info("Starting polling...")
-    application.run_polling(drop_pending_updates=True)
+    # Keep retrying (with PTB's backoff) when Telegram can't be reached at
+    # startup. The default (0 retries) exits on the first timeout, so a short
+    # network blip turned into a container restart loop that also took the
+    # dashboard and the Chronary webhook down with it.
+    application.run_polling(drop_pending_updates=True, bootstrap_retries=-1)
 
 
 if __name__ == "__main__":
