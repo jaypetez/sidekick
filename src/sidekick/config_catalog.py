@@ -126,6 +126,20 @@ CATALOG: Final[tuple[SettingSpec, ...]] = (
         "Telegram chat that receives reminders; unset disables delivery.",
     ),
     SettingSpec(
+        "SIDEKICK_ANNOUNCE_UPDATES",
+        "Reminders",
+        "Announce updates",
+        "Post the new version and its changes to the reminder chat after a deploy.",
+        "true",
+    ),
+    SettingSpec(
+        "SIDEKICK_UPDATE_REPO",
+        "Reminders",
+        "Update notes repo",
+        "GitHub owner/repo whose commits list what changed between versions.",
+        "jaypetez/sidekick",
+    ),
+    SettingSpec(
         "MORNING_REMINDER_TIME", "Reminders", "Morning summary", "HH:MM, 24-hour.", "07:30"
     ),
     SettingSpec(
