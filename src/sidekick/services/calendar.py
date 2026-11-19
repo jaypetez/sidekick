@@ -11,9 +11,11 @@ handler module would.
 
 from __future__ import annotations
 
-from datetime import date, timedelta
+from datetime import datetime, timedelta
 from typing import Any
+from zoneinfo import ZoneInfo
 
+from .. import runtime_config
 from ..util import run_sync
 
 
@@ -22,7 +24,9 @@ async def list_events(
 ) -> list[dict[str, Any]]:
     """List upcoming events in the next ``days`` days (clamped to 1..90)."""
     days = max(1, min(days, 90))
-    start = date.today()
+    # "Today" in the user's timezone, not the server's (a container runs on
+    # UTC, so evenings in the Americas would start the window a day late).
+    start = datetime.now(ZoneInfo(runtime_config.timezone_name())).date()
     end = start + timedelta(days=days)
     events = await run_sync(
         provider.list_events,

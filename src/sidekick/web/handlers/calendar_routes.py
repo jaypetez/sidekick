@@ -11,12 +11,14 @@ the stdlib ``calendar`` module.
 from __future__ import annotations
 
 import logging
-from datetime import date, timedelta
+from datetime import datetime, timedelta
 from typing import Any
+from zoneinfo import ZoneInfo
 
 import aiohttp_jinja2
 from aiohttp import web
 
+from ... import runtime_config, timefmt
 from ..helpers import run_sync
 
 logger = logging.getLogger(__name__)
@@ -39,7 +41,8 @@ async def index(request: web.Request) -> dict[str, Any]:
         days = 14
     days = max(1, min(days, 90))
 
-    start = date.today()
+    tz_name = runtime_config.timezone_name()
+    start = datetime.now(ZoneInfo(tz_name)).date()  # user's today, not the server's
     end = start + timedelta(days=days)
     try:
         events = await run_sync(
@@ -49,7 +52,14 @@ async def index(request: web.Request) -> dict[str, Any]:
     except Exception as exc:
         logger.exception("list_events failed")
         return {"events": [], "days": days, "error": str(exc)}
-    return {"events": events, "days": days, "error": None}
+    for event in events:
+        event["when"] = timefmt.format_event_span(
+            str(event.get("start") or ""),
+            event.get("end"),
+            tz_name,
+            all_day=bool(event.get("all_day")),
+        )
+    return {"events": events, "days": days, "tz": tz_name, "error": None}
 
 
 async def create(request: web.Request) -> web.Response:

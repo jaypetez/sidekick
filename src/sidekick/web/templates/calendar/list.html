@@ -14,12 +14,11 @@
 
 {% if events %}
 <table>
-  <thead><tr><th>Start</th><th>End</th><th>Summary</th><th>Location</th><th>Actions</th></tr></thead>
+  <thead><tr><th>When ({{ tz }})</th><th>Summary</th><th>Location</th><th>Actions</th></tr></thead>
   <tbody>
     {% for e in events %}
     <tr>
-      <td>{{ e.start }}</td>
-      <td>{{ e.end }}</td>
+      <td>{{ e.when }}</td>
       <td>{{ e.summary }}</td>
       <td>{{ e.location }}</td>
       <td>

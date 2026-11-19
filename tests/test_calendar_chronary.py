@@ -123,12 +123,12 @@ def test_list_events_unwraps_sync_pager():
     assert result[0]["summary"] == "Standup"
 
 
-def test_list_events_serializes_datetime_fields_to_z_utc():
+def test_list_events_serializes_datetime_fields_in_local_time():
     """The real Chronary SDK returns ``start_time``/``end_time`` as aware
     ``datetime`` objects, which crash ``json.dumps`` at the MCP boundary with
     ``Object of type datetime is not JSON serializable``. The provider must
-    render them as ``Z``-suffix UTC strings so the mapped event survives JSON
-    serialization.
+    render them as strings, in the user's timezone, so the mapped event
+    survives JSON serialization and reads as the right wall-clock time.
     """
     import json
     from datetime import UTC, datetime
@@ -150,9 +150,10 @@ def test_list_events_serializes_datetime_fields_to_z_utc():
     result = provider.list_events({"start_date": "2026-05-29", "end_date": "2026-05-29"})
 
     e = result[0]
-    assert e["start"] == "2026-05-29T22:00:00Z"
-    # 15:30 PDT (UTC-7) -> 22:30 UTC
-    assert e["end"] == "2026-05-29T22:30:00Z"
+    # Provider timezone is America/Chicago (CDT, UTC-5 in May).
+    assert e["start"] == "2026-05-29T17:00:00-05:00"
+    # 15:30 PDT (UTC-7) -> 22:30 UTC -> 17:30 CDT
+    assert e["end"] == "2026-05-29T17:30:00-05:00"
     # The whole result must be JSON-serializable (the original failure mode).
     json.dumps(result)
 
@@ -368,3 +369,64 @@ def test_init_reads_ids_from_env(chronary_env):
     provider = ChronaryProvider(client=MagicMock())
     assert provider.agent_id == "agt_test"
     assert provider.calendar_id == "cal_test"
+
+
+# -------------------------------------------------------------------
+# Event times are reported in the user's timezone (regression)
+# -------------------------------------------------------------------
+
+
+def test_evening_event_reported_in_local_time_not_utc():
+    """A 6:40 PM Pacific game is 02:40 UTC the next day. Chronary returns the
+    UTC form; the provider must hand back the local wall-clock time, or the
+    morning summary prints "2:40 AM"."""
+    client = MagicMock()
+    client.events.list.return_value = [
+        {
+            "id": "evt_kraken",
+            "title": "Kraken vs Canucks",
+            "start_time": "2026-11-20T02:40:00Z",
+            "end_time": "2026-11-20T05:40:00Z",
+        }
+    ]
+    provider = _make_provider(client=client, timezone="America/Los_Angeles")
+    [e] = provider.list_events({"start_date": "2026-11-19", "end_date": "2026-11-19"})
+    assert e["start"] == "2026-11-19T18:40:00-08:00"
+    assert e["end"] == "2026-11-19T21:40:00-08:00"
+
+
+def test_naive_chronary_datetime_is_treated_as_utc():
+    from datetime import datetime
+
+    client = MagicMock()
+    client.events.list.return_value = [
+        SimpleNamespace(
+            id="e",
+            title="t",
+            start_time=datetime(2026, 11, 20, 2, 40),
+            end_time=None,
+            metadata=None,
+        )
+    ]
+    provider = _make_provider(client=client, timezone="America/Los_Angeles")
+    [e] = provider.list_events({"start_date": "2026-11-19", "end_date": "2026-11-19"})
+    assert e["start"] == "2026-11-19T18:40:00-08:00"
+
+
+def test_all_day_event_dates_are_not_shifted():
+    """All-day events are dates: converting midnight UTC to Pacific would move
+    them to the previous afternoon."""
+    client = MagicMock()
+    client.events.list.return_value = [
+        {
+            "id": "evt_bday",
+            "title": "Birthday",
+            "start_time": "2026-11-19T00:00:00Z",
+            "end_time": "2026-11-20T00:00:00Z",
+            "all_day": True,
+        }
+    ]
+    provider = _make_provider(client=client, timezone="America/Los_Angeles")
+    [e] = provider.list_events({"start_date": "2026-11-19", "end_date": "2026-11-19"})
+    assert e["start"] == "2026-11-19T00:00:00Z"
+    assert e["all_day"] is True
